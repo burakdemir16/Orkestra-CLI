@@ -1,12 +1,20 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   ArrowUp,
   Bot,
+  FileText,
   CheckCircle2,
+  ChevronRight,
   Circle,
   Diamond,
+  ExternalLink,
+  Eye,
+  File as FileIcon,
+  Folder,
+  FolderOpen,
   GitBranch,
+  Globe,
   History,
   ImagePlus,
   LogIn,
@@ -20,6 +28,8 @@ import {
   Clock,
   Cpu,
   Mic,
+  PanelRightOpen,
+  PanelRightClose,
   Play,
   Plus,
   RefreshCw,
@@ -46,6 +56,7 @@ import type {
   CliToolStatus,
   GitStatus,
   ModelOption,
+  PlanTask,
   Run,
   RunEvent
 } from "../../../packages/shared/types";
@@ -62,6 +73,21 @@ type StreamItem = {
   type: string;
   message: string;
   createdAt: string;
+};
+
+type TerminalSessionInfo = {
+  id: string;
+  shell: "powershell" | "cmd";
+  name: string;
+  cwd: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type OpenFileTab = {
+  path: string;
+  name: string;
+  content: string;
 };
 
 const plannerLabelsByLanguage: Record<Language, Record<PlannerChoice, string>> = {
@@ -153,10 +179,13 @@ const uiText = {
     needsTwoCli: "At least two verified CLIs are required.",
     rounds: "Rounds",
     remove: "Remove",
+    noParticipants: "No participants yet — add below.",
+    addParticipant: "Add participant",
     listening: "Listening...",
     send: "Send",
     composerPlaceholder: "Ask something or assign a task... (Enter sends - Shift+Enter new line - Ctrl+V paste image)",
     addImage: "Add image",
+    removeAttachment: "Remove",
     whichCli: "Which CLI",
     noCli: "No CLI",
     reasoningEffort: "Reasoning effort",
@@ -231,7 +260,59 @@ const uiText = {
     workspacePath: "Workspace Path",
     briefShartname: "Execution Brief",
     terminalTitle: "Live Agent Execution Console",
-    elapsedSeconds: "seconds"
+    elapsedSeconds: "seconds",
+    explorer: "Explorer",
+    preview: "Preview",
+    openInBrowser: "Open in browser",
+    refreshPreview: "Refresh",
+    noPreview: "No preview available",
+    noPreviewDesc: "Run a task that generates HTML files to see a preview here.",
+    codeChat: "Code Chat",
+    fileViewer: "File Viewer",
+    closeFile: "Close file",
+    togglePreview: "Toggle preview panel",
+    fileEditedNoun: "files edited",
+    review: "Review",
+    undo: "Undo",
+    startRun: "Start",
+    startRunTitle: "Start the agreed task in the pipeline without a brief",
+    stop: "Stop",
+    addNote: "Add note to the running task",
+    steeringPlaceholder: "Task is running — leave a note for the next agent…",
+    teamPlan: "Team Plan",
+    teamPlanTitle: "Let the planner split the project into sub-tasks for the team",
+    approvePlan: "Approve & Run Team",
+    taskTitle: "Task description",
+    role: "Role",
+    folder: "Folder",
+    dependsOn: "Depends on (ids)",
+    addTask: "Add task",
+    rolePlanner: "Planner",
+    roleBuilder: "Builder",
+    roleReviewer: "Reviewer",
+    roleFixer: "Fixer",
+    activity: "Activity",
+    changedFiles: "Files",
+    noActivity: "No activity yet.",
+    noChangedFiles: "No file changes yet.",
+    created: "Created",
+    changed: "Changed",
+    deleted: "Deleted",
+    started: "Started",
+    finished: "Finished",
+    failedLabel: "Failed",
+    limitDetected: "Limit detected",
+    fallback: "Fallback",
+    openFile: "Open file",
+    noWorkspace: "No coding workspace selected",
+    noWorkspaceDesc: "Start or select a coding run to browse generated files.",
+    terminal: "Terminal",
+    newPowerShell: "PowerShell",
+    newCmd: "cmd",
+    terminalPlaceholder: "Type a command and press Enter",
+    noTerminal: "Open a PowerShell or cmd tab to start.",
+    closeTerminal: "Close terminal",
+    toggleTerminal: "Toggle terminal"
   },
   tr: {
     welcome: "Merhaba! Ben Orkestra Planlayıcısı. Proje planlamak, sohbet etmek veya kod yazmak için bana yazabilirsiniz.",
@@ -271,10 +352,13 @@ const uiText = {
     needsTwoCli: "En az iki doğrulanmış CLI gerekli.",
     rounds: "Turlar",
     remove: "Kaldır",
+    noParticipants: "Henüz katılımcı yok — aşağıdan ekle.",
+    addParticipant: "Katılımcı ekle",
     listening: "Dinleniyor...",
     send: "Gönder",
     composerPlaceholder: "Bir şey sorun veya görev verin... (Enter gönderir - Shift+Enter yeni satır - Ctrl+V görsel yapıştır)",
     addImage: "Görsel ekle",
+    removeAttachment: "Kaldır",
     whichCli: "Hangi CLI",
     noCli: "CLI yok",
     reasoningEffort: "Akıl yürütme seviyesi",
@@ -349,7 +433,60 @@ const uiText = {
     workspacePath: "Çalışma Dizini",
     briefShartname: "Görev Şartnamesi (Brief)",
     terminalTitle: "Canlı Ajan İcra Konsolu",
-    elapsedSeconds: "saniye"
+    elapsedSeconds: "saniye",
+    explorer: "Gezgin",
+    preview: "Önizleme",
+    openInBrowser: "Tarayıcıda aç",
+    refreshPreview: "Yenile",
+    noPreview: "Önizleme mevcut değil",
+    noPreviewDesc: "Burada önizleme görmek için HTML dosyaları üreten bir görev çalıştırın.",
+    codeChat: "Kod Sohbeti",
+    fileViewer: "Dosya Görüntüleyici",
+    closeFile: "Dosyayı kapat",
+    togglePreview: "Önizleme panelini aç/kapat",
+    fileEditedNoun: "dosya düzenlendi",
+    review: "İncele",
+    undo: "Geri Al",
+    startRun: "Başlat",
+    startRunTitle: "Brief oluşturmadan, konuşulan işi pipeline'da başlat",
+    stop: "Dur",
+    addNote: "Çalışan göreve not bırak",
+    steeringPlaceholder: "Görev çalışıyor — sıradaki ajana not bırak…",
+    teamPlan: "Ekip Planı",
+    teamPlanTitle: "Plancı projeyi ekip için alt-görevlere bölsün",
+    approvePlan: "Onayla ve Ekibi Başlat",
+    taskTitle: "Görev açıklaması",
+    role: "Rol",
+    folder: "Klasör",
+    dependsOn: "Bağımlılık (id)",
+    addTask: "Görev ekle",
+    rolePlanner: "Planlayıcı",
+    roleBuilder: "Kodlayıcı",
+    roleReviewer: "Denetçi",
+    roleFixer: "Düzeltici",
+    activity: "Aktivite",
+    changedFiles: "Dosyalar",
+    noActivity: "Henüz aktivite yok.",
+    noChangedFiles: "Henüz dosya değişikliği yok.",
+    created: "Oluşturuldu",
+    changed: "Değişti",
+    deleted: "Silindi",
+    started: "Başladı",
+    finished: "Bitti",
+    failedLabel: "Hata",
+    limitDetected: "Limit algılandı",
+    fallback: "Fallback",
+    openFile: "Dosyayı aç"
+    ,
+    noWorkspace: "Kodlama çalışma alanı seçilmedi",
+    noWorkspaceDesc: "Üretilen dosyaları gezmek için bir kodlama görevi başlatın veya seçin.",
+    terminal: "Terminal",
+    newPowerShell: "PowerShell",
+    newCmd: "cmd",
+    terminalPlaceholder: "Komut yazıp Enter'a basın",
+    noTerminal: "Başlamak için PowerShell veya cmd sekmesi açın.",
+    closeTerminal: "Terminali kapat",
+    toggleTerminal: "Terminali aç/kapat"
   }
 } as const;
 
@@ -383,11 +520,13 @@ const api = {
 };
 
 type StoredConversation = { id: string; title: string; messages: ChatMessage[]; updatedAt: string };
-const CONVERSATIONS_KEY = "orkestra.conversations";
+// Chat ve Code sekmelerinin geçmişleri ayrı saklanır.
+const CHAT_CONVERSATIONS_KEY = "orkestra.conversations.chat";
+const CODE_CONVERSATIONS_KEY = "orkestra.conversations.code";
 
-function loadConversations(): StoredConversation[] {
+function loadConversations(key: string): StoredConversation[] {
   try {
-    const raw = localStorage.getItem(CONVERSATIONS_KEY);
+    const raw = localStorage.getItem(key);
     const parsed = raw ? (JSON.parse(raw) as StoredConversation[]) : [];
     return Array.isArray(parsed) ? parsed : [];
   } catch {
@@ -395,9 +534,9 @@ function loadConversations(): StoredConversation[] {
   }
 }
 
-function saveConversations(items: StoredConversation[]) {
+function saveConversations(key: string, items: StoredConversation[]) {
   try {
-    localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(items.slice(0, 50)));
+    localStorage.setItem(key, JSON.stringify(items.slice(0, 50)));
   } catch {
     // localStorage may be full or unavailable; ignore silently.
   }
@@ -415,7 +554,13 @@ function App() {
     return saved === "dark" ? "dark" : "light";
   });
 
-  const [activeView, setActiveView] = useState<"chat" | "code">("chat");
+  const [activeView, setActiveView] = useState<"chat" | "code">(() =>
+    localStorage.getItem("orkestra.activeView") === "code" ? "code" : "chat"
+  );
+
+  useEffect(() => {
+    localStorage.setItem("orkestra.activeView", activeView);
+  }, [activeView]);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -438,14 +583,37 @@ function App() {
   const [runs, setRuns] = useState<Run[]>([]);
   const [activeRun, setActiveRun] = useState<Run | null>(null);
   const [events, setEvents] = useState<RunEvent[]>([]);
-  const [messages, setMessages] = useState<ChatMessage[]>(() => [welcomeMessageFor(language)]);
+  // Sürekli proje: aktif projenin kalıcı workspace yolu (yeni promptlar aynı projede devam eder).
+  const [projectWorkspace, setProjectWorkspace] = useState<string | null>(
+    () => localStorage.getItem("orkestra.projectWorkspace") || null
+  );
+  useEffect(() => {
+    if (projectWorkspace) localStorage.setItem("orkestra.projectWorkspace", projectWorkspace);
+    else localStorage.removeItem("orkestra.projectWorkspace");
+  }, [projectWorkspace]);
+  // Chat ve Code geçmişleri ayrı: mesajlar, konuşma listesi ve aktif id ayrı tutulur.
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => [welcomeMessageFor(language)]);
+  const [codeMessages, setCodeMessages] = useState<ChatMessage[]>(() => [welcomeMessageFor(language)]);
+  const [chatConvos, setChatConvos] = useState<StoredConversation[]>([]);
+  const [codeConvos, setCodeConvos] = useState<StoredConversation[]>([]);
+  const [chatConvoId, setChatConvoId] = useState<string>(() => crypto.randomUUID());
+  const [codeConvoId, setCodeConvoId] = useState<string>(() => crypto.randomUUID());
+
+  // Aktif sekmeye göre türetilmiş alias'lar — gerisi değişmeden çalışır.
+  const isCodeView = activeView === "code";
+  const messages = isCodeView ? codeMessages : chatMessages;
+  const setMessages = isCodeView ? setCodeMessages : setChatMessages;
+  const conversations = isCodeView ? codeConvos : chatConvos;
+  const setConversations = isCodeView ? setCodeConvos : setChatConvos;
+  const conversationId = isCodeView ? codeConvoId : chatConvoId;
+  const setConversationId = isCodeView ? setCodeConvoId : setChatConvoId;
+
   const [chatInput, setChatInput] = useState("");
   const [attachments, setAttachments] = useState<{ path: string; name: string; preview: string }[]>([]);
-  const [conversations, setConversations] = useState<StoredConversation[]>([]);
-  const [conversationId, setConversationId] = useState<string>(() => crypto.randomUUID());
   const [selectedEffort, setSelectedEffort] = useState<"low" | "medium" | "high">("low");
   const [selectedDetailLevel, setSelectedDetailLevel] = useState<"low" | "medium" | "high">("high");
-  const [debateParticipants, setDebateParticipants] = useState<DebateParticipant[]>([]);
+  // Paralel/Tartışma katılımcıları: aynı CLI'den farklı modeller ayrı katılımcı olabilir.
+  const [participants, setParticipants] = useState<{ cli: DebateParticipant; model: string }[]>([]);
   const [debateRounds, setDebateRounds] = useState(1);
   const [chatHeight, setChatHeight] = useState<number>(() => {
     const saved = Number(localStorage.getItem("orkestra.chatHeight"));
@@ -465,6 +633,20 @@ function App() {
   const [briefText, setBriefText] = useState("");
   const [briefMeta, setBriefMeta] = useState<string | null>(null);
   const [briefLoading, setBriefLoading] = useState(false);
+  const [planOpen, setPlanOpen] = useState(false);
+  const [planTasks, setPlanTasks] = useState<PlanTask[]>([]);
+  const [planMeta, setPlanMeta] = useState<string | null>(null);
+  const [planLoading, setPlanLoading] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const [fileDialogOpen, setFileDialogOpen] = useState(false);
+  const [openFileTabs, setOpenFileTabs] = useState<OpenFileTab[]>([]);
+  const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const [terminalSessions, setTerminalSessions] = useState<TerminalSessionInfo[]>([]);
+  const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
+  const [terminalOutputs, setTerminalOutputs] = useState<Record<string, string>>({});
+  const [terminalCursors, setTerminalCursors] = useState<Record<string, number>>({});
+  const terminalCursorsRef = useRef<Record<string, number>>({});
 
   const online = Boolean(cliStatus);
   const agentOptions = useMemo(() => agents.filter((agent) => agent.enabled), [agents]);
@@ -478,18 +660,29 @@ function App() {
     [verifiedTools]
   );
   const multiAvailable = verifiedTools.length > 1;
+  const workspaceFileEventCount = useMemo(
+    () => events.filter((event) => event.type === "file_created" || event.type === "file_changed" || event.type === "file_deleted").length,
+    [events]
+  );
 
   // The planner sent to the API is derived from the active mode.
   const selectedPlanner: PlannerChoice = mode === "multi" ? "all" : mode === "debate" ? "debate" : singleCli;
 
-  // Debate participants default to all verified CLIs.
+  // Katılımcılar varsayılan olarak her doğrulanmış CLI'den birer tane (default model).
   useEffect(() => {
-    setDebateParticipants((current) => {
-      const valid = verifiedTools.map((tool) => tool.id as DebateParticipant);
-      const next = current.filter((id) => valid.includes(id));
-      return next.length ? next : valid;
+    setParticipants((current) => {
+      const validClis = verifiedTools.map((tool) => tool.id as DebateParticipant);
+      const kept = current.filter((p) => validClis.includes(p.cli));
+      return kept.length ? kept : validClis.map((cli) => ({ cli, model: "default" }));
     });
   }, [verifiedTools]);
+
+  // Katılımcı eklemek için: her doğrulanmış CLI ve onun model seçenekleri.
+  const participantSources = verifiedTools.map((tool) => ({
+    cli: tool.id as DebateParticipant,
+    label: displayToolName(tool.id),
+    models: tool.modelOptions?.length ? tool.modelOptions : [{ id: "default", label: "default", limited: false }]
+  }));
 
   // If the selected single-agent CLI is no longer verified, switch to the first valid one.
   useEffect(() => {
@@ -537,7 +730,8 @@ function App() {
 
   useEffect(() => {
     void refresh();
-    setConversations(loadConversations());
+    setChatConvos(loadConversations(CHAT_CONVERSATIONS_KEY));
+    setCodeConvos(loadConversations(CODE_CONVERSATIONS_KEY));
   }, []);
 
   useEffect(() => {
@@ -546,21 +740,29 @@ function App() {
     );
   }, [language]);
 
-  // Save the active chat to localStorage when it has at least one user message.
-  useEffect(() => {
-    if (!messages.some((message) => message.role === "user")) return;
-    const convo: StoredConversation = {
-      id: conversationId,
-      title: deriveTitle(messages),
-      messages,
-      updatedAt: new Date().toISOString()
-    };
-    setConversations((current) => {
-      const next = [convo, ...current.filter((item) => item.id !== conversationId)];
-      saveConversations(next);
+  // En az bir kullanıcı mesajı olan aktif sohbeti ilgili (chat/code) listeye kaydeder.
+  function persistConvo(
+    key: string,
+    msgs: ChatMessage[],
+    id: string,
+    setConvos: React.Dispatch<React.SetStateAction<StoredConversation[]>>
+  ) {
+    if (!msgs.some((message) => message.role === "user")) return;
+    const convo: StoredConversation = { id, title: deriveTitle(msgs), messages: msgs, updatedAt: new Date().toISOString() };
+    setConvos((current) => {
+      const next = [convo, ...current.filter((item) => item.id !== id)];
+      saveConversations(key, next);
       return next;
     });
-  }, [messages, conversationId]);
+  }
+
+  useEffect(() => {
+    persistConvo(CHAT_CONVERSATIONS_KEY, chatMessages, chatConvoId, setChatConvos);
+  }, [chatMessages, chatConvoId]);
+
+  useEffect(() => {
+    persistConvo(CODE_CONVERSATIONS_KEY, codeMessages, codeConvoId, setCodeConvos);
+  }, [codeMessages, codeConvoId]);
 
   function newChat() {
     setMessages([welcomeMessageFor(language)]);
@@ -568,6 +770,12 @@ function App() {
     setAttachments([]);
     setNotice(null);
     setConversationId(crypto.randomUUID());
+    // Code modunda "Yeni" = yeni proje: kalıcı workspace ve aktif run sıfırlanır.
+    if (isCodeView) {
+      setProjectWorkspace(null);
+      setActiveRun(null);
+      setEvents([]);
+    }
   }
 
   function openConversation(id: string) {
@@ -580,9 +788,10 @@ function App() {
   }
 
   function deleteConversation(id: string) {
+    const key = isCodeView ? CODE_CONVERSATIONS_KEY : CHAT_CONVERSATIONS_KEY;
     setConversations((current) => {
       const next = current.filter((item) => item.id !== id);
-      saveConversations(next);
+      saveConversations(key, next);
       return next;
     });
     if (id === conversationId) newChat();
@@ -606,6 +815,39 @@ function App() {
   function onResizeEnd() {
     resizeRef.current = null;
   }
+
+  const openFileInDialog = useCallback(async (path: string) => {
+    setFileDialogOpen(true);
+    setActiveFilePath(path);
+    const name = path.split(/[\\/]/).pop() || path;
+    setOpenFileTabs((current) =>
+      current.some((tab) => tab.path === path) ? current : [...current, { path, name, content: "Loading..." }]
+    );
+    try {
+      const res = await api.get<{ content: string }>(`/api/files/read?path=${encodeURIComponent(path)}`);
+      setOpenFileTabs((current) =>
+        current.map((tab) => (tab.path === path ? { ...tab, content: res.content } : tab))
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setOpenFileTabs((current) =>
+        current.map((tab) => (tab.path === path ? { ...tab, content: `// Could not read file\n// ${message}` } : tab))
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!event.ctrlKey) return;
+      if (event.key === "`" || event.key === "\"" || event.key === "'") {
+        event.preventDefault();
+        setTerminalOpen((value) => !value);
+        setActiveView("code");
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   useEffect(() => {
     if (!activeRun) return;
@@ -702,7 +944,7 @@ function App() {
       body: JSON.stringify({
         message,
         history,
-        participants: debateParticipants,
+        participants: participants.map((p) => ({ cli: p.cli, model: p.model === "default" ? undefined : p.model })),
         rounds: debateRounds,
         effort: selectedEffort,
         detailLevel: selectedDetailLevel
@@ -774,6 +1016,9 @@ function App() {
         model: selectedModel,
         effort: selectedPlanner === "claude" || selectedPlanner === "codex" ? selectedEffort : undefined,
         detailLevel: selectedDetailLevel,
+        participants: selectedPlanner === "all"
+          ? participants.map((p) => ({ cli: p.cli, model: p.model === "default" ? undefined : p.model }))
+          : undefined,
         attachments: pending.map((item) => item.path)
       });
       const responseMessages = response.messages?.length ? response.messages : [response.message];
@@ -831,11 +1076,91 @@ function App() {
   }
 
   async function startRun(prompt: string) {
-    const run = await api.post<Run>("/api/runs", { prompt });
+    // Aktif bir proje varsa aynı workspace'te devam et (sürekli geliştirme).
+    const run = await api.post<Run>("/api/runs", {
+      prompt,
+      workspacePath: projectWorkspace ?? undefined
+    });
     setActiveRun(run);
+    setProjectWorkspace(run.workspacePath);
     setEvents([]);
     setSuggestedPrompt(null);
     await refresh();
+  }
+
+  // Ekip planı üret (plancı projeyi alt-görevlere böler) ve düzenleme modalını aç.
+  async function createPlan() {
+    setPlanOpen(true);
+    setPlanLoading(true);
+    setPlanMeta(null);
+    try {
+      const res = await api.post<{ tasks: PlanTask[]; planner: string; modelLabel: string }>("/api/plan", {
+        history: messages,
+        planner: "auto"
+      });
+      setPlanTasks(res.tasks ?? []);
+      setPlanMeta(res.modelLabel);
+    } catch (error) {
+      setPlanTasks([]);
+      setNotice(`${language === "tr" ? "Plan üretilemedi" : "Plan failed"}: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setPlanLoading(false);
+    }
+  }
+
+  // Onaylanan ekip planını çalıştır (ekip modu run'ı).
+  async function approvePlan() {
+    if (!planTasks.length) return;
+    setPlanOpen(false);
+    const convo = messages.filter((m) => m.id !== "welcome" && m.content.trim());
+    const goal = convo.map((m) => m.content).join("\n\n") || planTasks.map((t) => t.title).join("; ");
+    const run = await api.post<Run>("/api/runs", {
+      prompt: goal,
+      tasks: planTasks,
+      workspacePath: projectWorkspace ?? undefined
+    });
+    setActiveRun(run);
+    setProjectWorkspace(run.workspacePath);
+    setEvents([]);
+    setSuggestedPrompt(null);
+    await refresh();
+  }
+
+  // Çalışan run'a ara talimat (steering notu) bırak.
+  async function addRunNote(note: string) {
+    if (!activeRun || !note.trim()) return;
+    try {
+      await api.post(`/api/runs/${activeRun.id}/note`, { note: note.trim() });
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  // Çalışan run'ı durdur.
+  async function stopRun() {
+    if (!activeRun) return;
+    try {
+      await api.post(`/api/runs/${activeRun.id}/stop`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  // Brief oluşturmadan, mevcut sohbette karar verilen işi doğrudan pipeline'a başlatır.
+  function startFromChat() {
+    const convo = messages.filter((m) => m.id !== "welcome" && m.content.trim());
+    if (!convo.length) {
+      setNotice(language === "tr" ? "Başlatmak için önce sohbette bir görev konuşun." : "Discuss a task in chat first.");
+      return;
+    }
+    const transcript = convo
+      .map((m) => `${m.role === "user" ? "Kullanıcı" : m.modelLabel || "Asistan"}: ${m.content}`)
+      .join("\n\n");
+    const prompt =
+      (language === "tr"
+        ? "Aşağıdaki sohbette üzerinde anlaşılan işi uygula:\n\n"
+        : "Implement the task agreed upon in the conversation below:\n\n") + transcript;
+    void startRun(prompt);
   }
 
   // Creates a Code Task Brief from the chat and opens the edit modal.
@@ -896,6 +1221,83 @@ function App() {
       setNotice(error instanceof Error ? error.message : String(error));
     }
   }
+
+  async function refreshTerminals() {
+    const result = await api.get<{ sessions: TerminalSessionInfo[] }>("/api/terminals");
+    setTerminalSessions(result.sessions);
+    setActiveTerminalId((current) => current ?? result.sessions[0]?.id ?? null);
+  }
+
+  async function createTerminal(shell: "powershell" | "cmd") {
+    const session = await api.post<TerminalSessionInfo>("/api/terminals", {
+      shell,
+      cwd: activeRun?.workspacePath
+    });
+    setTerminalSessions((current) => [...current, session]);
+    setActiveTerminalId(session.id);
+    setTerminalOpen(true);
+    setActiveView("code");
+  }
+
+  async function closeTerminal(id: string) {
+    await fetch(`/api/terminals/${id}`, { method: "DELETE" });
+    setTerminalSessions((current) => current.filter((session) => session.id !== id));
+    setTerminalOutputs((current) => {
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+    setTerminalCursors((current) => {
+      const next = { ...current };
+      delete next[id];
+      terminalCursorsRef.current = next;
+      return next;
+    });
+    setActiveTerminalId((current) => {
+      if (current !== id) return current;
+      const remaining = terminalSessions.filter((session) => session.id !== id);
+      return remaining[0]?.id ?? null;
+    });
+  }
+
+  async function sendTerminalInput(id: string, value: string) {
+    await api.post(`/api/terminals/${id}/input`, { data: `${value}\r` });
+  }
+
+  useEffect(() => {
+    void refreshTerminals();
+  }, []);
+
+  useEffect(() => {
+    if (!terminalOpen || !activeTerminalId) return;
+    let cancelled = false;
+    const poll = async () => {
+      const offset = terminalCursorsRef.current[activeTerminalId] ?? 0;
+      try {
+        const result = await api.get<{ output: string; cursor: number }>(`/api/terminals/${activeTerminalId}/output?offset=${offset}`);
+        if (cancelled) return;
+        if (result.output) {
+          setTerminalOutputs((current) => ({
+            ...current,
+            [activeTerminalId]: `${current[activeTerminalId] ?? ""}${result.output}`
+          }));
+        }
+        setTerminalCursors((current) => {
+          const next = { ...current, [activeTerminalId]: result.cursor };
+          terminalCursorsRef.current = next;
+          return next;
+        });
+      } catch {
+        // Terminal may have been closed server-side; ignore until refresh.
+      }
+    };
+    void poll();
+    const interval = setInterval(() => void poll(), 800);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [activeTerminalId, terminalOpen]);
 
   return (
     <main className="appShell">
@@ -968,13 +1370,9 @@ function App() {
                   onEffortChange={setSelectedEffort}
                   selectedDetailLevel={selectedDetailLevel}
                   onDetailLevelChange={setSelectedDetailLevel}
-                  participantOptions={verifiedTools.map((tool) => ({ id: tool.id as DebateParticipant, label: displayToolName(tool.id) }))}
-                  debateParticipants={debateParticipants}
-                  onToggleParticipant={(id) =>
-                    setDebateParticipants((current) =>
-                      current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
-                    )
-                  }
+                  participantSources={participantSources}
+                  participants={participants}
+                  onParticipantsChange={setParticipants}
                   debateRounds={debateRounds}
                   onRoundsChange={setDebateRounds}
                   mode={mode}
@@ -1018,8 +1416,16 @@ function App() {
             </section>
           </>
         ) : (
-          <>
-            <aside className="leftColumn">
+          <div className="codeLayout">
+            <aside className="codeLeftCol">
+              <AgentCenter
+                language={language}
+                status={cliStatus}
+                gitStatus={gitStatus}
+                onRefresh={() => void refresh()}
+                onAction={(tool, action) => void runCliAction(tool, action)}
+                compact
+              />
               <RolePanel agents={agents} onRefresh={() => void refresh()} language={language} />
               <RunPanel
                 runs={runs}
@@ -1028,16 +1434,111 @@ function App() {
               />
             </aside>
 
-            <section className="centerColumn">
-              <ActiveRunView
-                run={activeRun}
-                events={events}
+            <div className="codeCenterCol">
+              <div className="codeChatSection codeChatFull">
+                <CodeChatPanel
+                  language={language}
+                  messages={messages}
+                  value={chatInput}
+                  selectedPlanner={selectedPlanner}
+                  selectedModel={selectedModel}
+                  modelOptions={modelOptions}
+                  selectedEffort={selectedEffort}
+                  onEffortChange={setSelectedEffort}
+                  selectedDetailLevel={selectedDetailLevel}
+                  onDetailLevelChange={setSelectedDetailLevel}
+                  mode={mode}
+                  onModeChange={setMode}
+                  multiAvailable={multiAvailable}
+                  cliOptions={cliOptions}
+                  singleCli={singleCli}
+                  onSingleCliChange={setSingleCli}
+                  thinking={isThinking}
+                  onModelChange={setSelectedModel}
+                  onChange={setChatInput}
+                  onSend={(t) => void sendChat(t)}
+                  onClear={() => { setMessages([welcomeMessageFor(language)]); setSuggestedPrompt(null); setAttachments([]); }}
+                  onCreateBrief={() => void createBrief()}
+                  onCreatePlan={() => void createPlan()}
+                  onStart={startFromChat}
+                  runActive={activeRun?.status === "running" || activeRun?.status === "queued"}
+                  onAddNote={(note) => void addRunNote(note)}
+                  onStopRun={() => void stopRun()}
+                  attachments={attachments}
+                  onAddImage={(file) => void addImage(file)}
+                  onRemoveImage={removeImage}
+                  conversations={conversations}
+                  activeConversationId={conversationId}
+                  onOpenConversation={openConversation}
+                  onDeleteConversation={deleteConversation}
+                  onNewChat={newChat}
+                  run={activeRun}
+                  events={events}
+                  onOpenFile={(path) => void openFileInDialog(path)}
+                  onTogglePreview={() => setShowPreview((current) => !current)}
+                  previewOpen={showPreview}
+                />
+              </div>
+            </div>
+
+            <aside className="codeRightCol fileExplorerCol">
+              <FileExplorer
                 language={language}
+                rootPath={activeRun?.workspacePath ?? projectWorkspace ?? null}
+                refreshKey={workspaceFileEventCount}
+                onOpenFile={(path) => void openFileInDialog(path)}
               />
-            </section>
-          </>
+            </aside>
+          </div>
+        )}
+        {showPreview && activeView === "code" && (
+          <div className="previewOverlay" onMouseDown={() => setShowPreview(false)}>
+            <div className="previewDialog" onMouseDown={(event) => event.stopPropagation()}>
+              <BrowserPreview
+                run={activeRun}
+                language={language}
+                onClose={() => setShowPreview(false)}
+              />
+            </div>
+          </div>
         )}
       </section>
+
+      {activeView === "code" && (
+        <IntegratedTerminal
+          language={language}
+          open={terminalOpen}
+          sessions={terminalSessions}
+          activeId={activeTerminalId}
+          outputs={terminalOutputs}
+          onToggle={() => setTerminalOpen((value) => !value)}
+          onCreate={(shell) => void createTerminal(shell)}
+          onClose={(id) => void closeTerminal(id)}
+          onSelect={setActiveTerminalId}
+          onInput={(id, value) => void sendTerminalInput(id, value)}
+        />
+      )}
+
+      {fileDialogOpen && (
+        <FileDialog
+          language={language}
+          rootPath={activeRun?.workspacePath ?? null}
+          refreshKey={workspaceFileEventCount}
+          tabs={openFileTabs}
+          activePath={activeFilePath}
+          onOpenFile={(path) => void openFileInDialog(path)}
+          onSelect={setActiveFilePath}
+          onCloseTab={(path) => {
+            setOpenFileTabs((current) => current.filter((tab) => tab.path !== path));
+            setActiveFilePath((current) => {
+              if (current !== path) return current;
+              const remaining = openFileTabs.filter((tab) => tab.path !== path);
+              return remaining[0]?.path ?? null;
+            });
+          }}
+          onClose={() => setFileDialogOpen(false)}
+        />
+      )}
 
       {briefOpen && (
         <div className="briefOverlay" onMouseDown={() => setBriefOpen(false)}>
@@ -1073,6 +1574,80 @@ function App() {
         </div>
       )}
 
+      {planOpen && (
+        <div className="briefOverlay" onMouseDown={() => setPlanOpen(false)}>
+          <div className="briefDialog" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="briefHead">
+              <strong>{text.teamPlan}</strong>
+              <span className="briefMeta">{planLoading ? text.generating : planMeta ? `${planMeta} ${text.generatedEditable}` : ""}</span>
+              <button className="iconButton" onClick={() => setPlanOpen(false)} title={text.close}>
+                <X size={16} />
+              </button>
+            </div>
+            <div className="planList">
+              {planLoading && <p className="muted">{text.generating}</p>}
+              {!planLoading && planTasks.map((task, index) => (
+                <div className="planTaskRow" key={index}>
+                  <input
+                    className="planTaskTitle"
+                    value={task.title}
+                    placeholder={text.taskTitle}
+                    onChange={(e) => setPlanTasks((cur) => cur.map((t, i) => (i === index ? { ...t, title: e.target.value } : t)))}
+                  />
+                  <select
+                    className="pill"
+                    value={task.role ?? "builder"}
+                    title={text.role}
+                    onChange={(e) => setPlanTasks((cur) => cur.map((t, i) => (i === index ? { ...t, role: e.target.value as AgentRole } : t)))}
+                  >
+                    <option value="planner">{text.rolePlanner}</option>
+                    <option value="builder">{text.roleBuilder}</option>
+                    <option value="reviewer">{text.roleReviewer}</option>
+                    <option value="fixer">{text.roleFixer}</option>
+                  </select>
+                  <input
+                    className="planTaskFolder"
+                    value={task.folder ?? ""}
+                    placeholder={text.folder}
+                    onChange={(e) => setPlanTasks((cur) => cur.map((t, i) => (i === index ? { ...t, folder: e.target.value } : t)))}
+                  />
+                  <input
+                    className="planTaskDeps"
+                    value={(task.dependsOn ?? []).join(", ")}
+                    placeholder={text.dependsOn}
+                    onChange={(e) => setPlanTasks((cur) => cur.map((t, i) => (i === index ? { ...t, dependsOn: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) } : t)))}
+                  />
+                  <button className="iconButton" onClick={() => setPlanTasks((cur) => cur.filter((_, i) => i !== index))} title={text.remove}>
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+              {!planLoading && (
+                <button
+                  className="ghostButton"
+                  onClick={() => setPlanTasks((cur) => [...cur, { id: `task${cur.length + 1}`, title: "", role: "builder", folder: "", dependsOn: [] }])}
+                >
+                  <Plus size={14} /> {text.addTask}
+                </button>
+              )}
+            </div>
+            <div className="briefActions">
+              <button onClick={() => void createPlan()} disabled={planLoading}>
+                <RefreshCw size={15} />
+                {text.regenerate}
+              </button>
+              <div className="briefActionsRight">
+                <button onClick={() => setPlanOpen(false)}>{text.cancel}</button>
+                <button className="primary" onClick={() => void approvePlan()} disabled={planLoading || !planTasks.length}>
+                  <Play size={15} />
+                  {text.approvePlan}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {notice && <div className="toast">{notice}</div>}
     </main>
   );
@@ -1083,18 +1658,20 @@ function AgentCenter({
   status,
   gitStatus,
   onRefresh,
-  onAction
+  onAction,
+  compact = false
 }: {
   language: Language;
   status: CliStatusResponse | null;
   gitStatus: GitStatus | null;
   onRefresh: () => void;
   onAction: (tool: CliToolStatus, action: "login" | "logout" | "test") => void;
+  compact?: boolean;
 }) {
   const tools = status?.tools ?? [];
   const text = uiText[language];
   return (
-    <section className="glassPanel">
+    <section className={`glassPanel${compact ? " agentCenterCompact" : ""}`}>
       <div className="panelTitle split">
         <span>
           <Zap size={17} />
@@ -1111,29 +1688,32 @@ function AgentCenter({
             <div className={`agentIcon ${tool.id}`}>{iconForTool(tool.id)}</div>
             <div className="agentInfo">
               <strong>{displayToolName(tool.id)}</strong>
-              <span>{statusText(tool, language)}</span>
-            {tool.lastError && <small>{tool.lastError}</small>}
+              {!compact && <span>{statusText(tool, language)}</span>}
+              {!compact && tool.lastError && <small>{tool.lastError}</small>}
               <UsageBars usage={tool.usage} language={language} />
-              {tool.modelOptions?.length ? (
+              {!compact && tool.modelOptions?.length ? (
                 <small>{tool.modelOptions.length} {text.model} - {tool.modelOptions.filter((m) => m.limited).length} {text.limited}</small>
               ) : null}
             </div>
-            <div className="agentActions">
-              <button onClick={() => onAction(tool, "test")}>{text.test}</button>
-              {tool.authenticated ? (
-                <button className="danger" onClick={() => onAction(tool, "logout")}>
-                  {text.logout}
-                </button>
-              ) : (
-                <button className="login" onClick={() => onAction(tool, "login")}>
-                  {text.login}
-                </button>
-              )}
-            </div>
+            {!compact && (
+              <div className="agentActions">
+                <button onClick={() => onAction(tool, "test")}>{text.test}</button>
+                {tool.authenticated ? (
+                  <button className="danger" onClick={() => onAction(tool, "logout")}>
+                    {text.logout}
+                  </button>
+                ) : (
+                  <button className="login" onClick={() => onAction(tool, "login")}>
+                    {text.login}
+                  </button>
+                )}
+              </div>
+            )}
           </article>
         ))}
         {!tools.length && <p className="muted">{text.readingCli}</p>}
 
+        {!compact && (
         <article className="agentCard compact">
           <div className="agentIcon git">
             <svg fill="currentColor" viewBox="0 0 24 24" width="20" height="20" style={{ flex: "none", display: "block" }}>
@@ -1146,6 +1726,7 @@ function AgentCenter({
           </div>
           <div className="statusBadge ready">{gitStatus?.hasRemote ? text.remote : text.local}</div>
         </article>
+        )}
       </div>
     </section>
   );
@@ -1257,9 +1838,9 @@ function ChatPanel({
   onEffortChange,
   selectedDetailLevel,
   onDetailLevelChange,
-  participantOptions,
-  debateParticipants,
-  onToggleParticipant,
+  participantSources,
+  participants,
+  onParticipantsChange,
   debateRounds,
   onRoundsChange,
   mode,
@@ -1295,9 +1876,9 @@ function ChatPanel({
   onEffortChange: (effort: "low" | "medium" | "high") => void;
   selectedDetailLevel: "low" | "medium" | "high";
   onDetailLevelChange: (detailLevel: "low" | "medium" | "high") => void;
-  participantOptions: { id: DebateParticipant; label: string }[];
-  debateParticipants: DebateParticipant[];
-  onToggleParticipant: (id: DebateParticipant) => void;
+  participantSources: { cli: DebateParticipant; label: string; models: ModelOption[] }[];
+  participants: { cli: DebateParticipant; model: string }[];
+  onParticipantsChange: (next: { cli: DebateParticipant; model: string }[]) => void;
   debateRounds: number;
   onRoundsChange: (rounds: number) => void;
   mode: ChatMode;
@@ -1328,23 +1909,6 @@ function ChatPanel({
   const plannerLabels = plannerLabelsByLanguage[language];
   const modeMeta = modeMetaByLanguage[language];
   const [showHistory, setShowHistory] = useState(false);
-  const [historyQuery, setHistoryQuery] = useState("");
-  const [historyIndex, setHistoryIndex] = useState(0);
-
-  const filteredConvos = conversations.filter((convo) =>
-    convo.title.toLowerCase().includes(historyQuery.trim().toLowerCase())
-  );
-  const activeConvo = filteredConvos.find((convo) => convo.id === activeConversationId);
-  const recentConvos = filteredConvos.filter((convo) => convo.id !== activeConversationId);
-  const flatConvos = activeConvo ? [activeConvo, ...recentConvos] : recentConvos;
-
-  function openHighlighted() {
-    const target = flatConvos[Math.min(historyIndex, flatConvos.length - 1)];
-    if (target) {
-      onOpenConversation(target.id);
-      setShowHistory(false);
-    }
-  }
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [listening, setListening] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState("");
@@ -1424,10 +1988,7 @@ function ChatPanel({
           </button>
           <button
             className="ghostButton"
-            onClick={() => {
-              setHistoryQuery("");
-              setShowHistory(true);
-            }}
+            onClick={() => setShowHistory(true)}
             title={text.chatHistory}
           >
             <History size={15} />
@@ -1503,27 +2064,24 @@ function ChatPanel({
             );
           })}
         </div>
-        {mode === "debate" && (
+        {(mode === "debate" || mode === "multi") && (
           <div className="debateControls">
-            <div className="partChips">
-              {participantOptions.map((option) => (
-                <button
-                  key={option.id}
-                  className={`partChip${debateParticipants.includes(option.id) ? " on" : ""}`}
-                  onClick={() => onToggleParticipant(option.id)}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-            <label className="roundsPicker">
-              {text.rounds}
-              <select value={debateRounds} onChange={(event) => onRoundsChange(Number(event.target.value))}>
-                <option value={1}>1</option>
-                <option value={2}>2</option>
-                <option value={3}>3</option>
-              </select>
-            </label>
+            <ParticipantPicker
+              language={language}
+              sources={participantSources}
+              participants={participants}
+              onChange={onParticipantsChange}
+            />
+            {mode === "debate" && (
+              <label className="roundsPicker">
+                {text.rounds}
+                <select value={debateRounds} onChange={(event) => onRoundsChange(Number(event.target.value))}>
+                  <option value={1}>1</option>
+                  <option value={2}>2</option>
+                  <option value={3}>3</option>
+                </select>
+              </label>
+            )}
           </div>
         )}
 
@@ -1672,78 +2230,204 @@ function ChatPanel({
       </div>
       </div>
 
-      {showHistory && (
-        <div className="historyOverlay" onMouseDown={() => setShowHistory(false)}>
-          <div className="historyDialog" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="historySearch">
-              <Search size={16} />
-              <input
-                autoFocus
-                value={historyQuery}
-                placeholder={text.searchChats}
-                onChange={(event) => {
-                  setHistoryQuery(event.target.value);
-                  setHistoryIndex(0);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === "Escape") setShowHistory(false);
-                  else if (event.key === "ArrowDown") {
-                    event.preventDefault();
-                    setHistoryIndex((index) => Math.min(index + 1, flatConvos.length - 1));
-                  } else if (event.key === "ArrowUp") {
-                    event.preventDefault();
-                    setHistoryIndex((index) => Math.max(index - 1, 0));
-                  } else if (event.key === "Enter") {
-                    event.preventDefault();
-                    openHighlighted();
-                  }
-                }}
-              />
-            </div>
-            <div className="historyList">
-              {flatConvos.length === 0 && <div className="historyEmpty">{text.noMatchingChats}</div>}
-              {activeConvo && (
-                <>
-                  <div className="historyGroup">{text.current}</div>
-                  <HistoryRow
-                    language={language}
-                    convo={activeConvo}
-                    highlighted={historyIndex === 0}
-                    onOpen={() => {
-                      onOpenConversation(activeConvo.id);
-                      setShowHistory(false);
-                    }}
-                    onDelete={() => onDeleteConversation(activeConvo.id)}
-                  />
-                </>
-              )}
-              {recentConvos.length > 0 && <div className="historyGroup">{text.recentChats}</div>}
-              {recentConvos.map((convo, index) => {
-                const flatIndex = activeConvo ? index + 1 : index;
-                return (
-                  <HistoryRow
-                    language={language}
-                    key={convo.id}
-                    convo={convo}
-                    highlighted={historyIndex === flatIndex}
-                    onOpen={() => {
-                      onOpenConversation(convo.id);
-                      setShowHistory(false);
-                    }}
-                    onDelete={() => onDeleteConversation(convo.id)}
-                  />
-                );
-              })}
-            </div>
-            <div className="historyFooter">
-              <span>{text.upDownNavigate}</span>
-              <span>{text.enterSelect}</span>
-              <span>{text.escClose}</span>
-            </div>
-          </div>
-        </div>
-      )}
+      <HistoryDialog
+        open={showHistory}
+        onClose={() => setShowHistory(false)}
+        conversations={conversations}
+        activeConversationId={activeConversationId}
+        onOpenConversation={onOpenConversation}
+        onDeleteConversation={onDeleteConversation}
+        language={language}
+      />
     </section>
+  );
+}
+
+function HistoryDialog({
+  open,
+  onClose,
+  conversations,
+  activeConversationId,
+  onOpenConversation,
+  onDeleteConversation,
+  language
+}: {
+  open: boolean;
+  onClose: () => void;
+  conversations: StoredConversation[];
+  activeConversationId: string;
+  onOpenConversation: (id: string) => void;
+  onDeleteConversation: (id: string) => void;
+  language: Language;
+}) {
+  const text = uiText[language];
+  const [query, setQuery] = useState("");
+  const [index, setIndex] = useState(0);
+  useEffect(() => {
+    if (open) {
+      setQuery("");
+      setIndex(0);
+    }
+  }, [open]);
+  if (!open) return null;
+  const filtered = conversations.filter((convo) =>
+    convo.title.toLowerCase().includes(query.trim().toLowerCase())
+  );
+  const active = filtered.find((convo) => convo.id === activeConversationId);
+  const recent = filtered.filter((convo) => convo.id !== activeConversationId);
+  const flat = active ? [active, ...recent] : recent;
+  const openHighlighted = () => {
+    const target = flat[Math.min(index, flat.length - 1)];
+    if (target) {
+      onOpenConversation(target.id);
+      onClose();
+    }
+  };
+  return (
+    <div className="historyOverlay" onMouseDown={onClose}>
+      <div className="historyDialog" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="historySearch">
+          <Search size={16} />
+          <input
+            autoFocus
+            value={query}
+            placeholder={text.searchChats}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setIndex(0);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") onClose();
+              else if (event.key === "ArrowDown") {
+                event.preventDefault();
+                setIndex((i) => Math.min(i + 1, flat.length - 1));
+              } else if (event.key === "ArrowUp") {
+                event.preventDefault();
+                setIndex((i) => Math.max(i - 1, 0));
+              } else if (event.key === "Enter") {
+                event.preventDefault();
+                openHighlighted();
+              }
+            }}
+          />
+        </div>
+        <div className="historyList">
+          {flat.length === 0 && <div className="historyEmpty">{text.noMatchingChats}</div>}
+          {active && (
+            <>
+              <div className="historyGroup">{text.current}</div>
+              <HistoryRow
+                language={language}
+                convo={active}
+                highlighted={index === 0}
+                onOpen={() => {
+                  onOpenConversation(active.id);
+                  onClose();
+                }}
+                onDelete={() => onDeleteConversation(active.id)}
+              />
+            </>
+          )}
+          {recent.length > 0 && <div className="historyGroup">{text.recentChats}</div>}
+          {recent.map((convo, i) => {
+            const flatIndex = active ? i + 1 : i;
+            return (
+              <HistoryRow
+                language={language}
+                key={convo.id}
+                convo={convo}
+                highlighted={index === flatIndex}
+                onOpen={() => {
+                  onOpenConversation(convo.id);
+                  onClose();
+                }}
+                onDelete={() => onDeleteConversation(convo.id)}
+              />
+            );
+          })}
+        </div>
+        <div className="historyFooter">
+          <span>{text.upDownNavigate}</span>
+          <span>{text.enterSelect}</span>
+          <span>{text.escClose}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Paralel/Tartışma katılımcı editörü: aynı CLI'den farklı modeller ayrı katılımcı eklenebilir.
+function ParticipantPicker({
+  language,
+  sources,
+  participants,
+  onChange
+}: {
+  language: Language;
+  sources: { cli: DebateParticipant; label: string; models: ModelOption[] }[];
+  participants: { cli: DebateParticipant; model: string }[];
+  onChange: (next: { cli: DebateParticipant; model: string }[]) => void;
+}) {
+  const text = uiText[language];
+  const plannerLabels = plannerLabelsByLanguage[language];
+  const [addCli, setAddCli] = useState<DebateParticipant | "">("");
+  const [addModel, setAddModel] = useState("default");
+  const activeSource = sources.find((s) => s.cli === addCli);
+
+  function add() {
+    if (!addCli) return;
+    if (participants.some((p) => p.cli === addCli && p.model === addModel)) return;
+    onChange([...participants, { cli: addCli, model: addModel }]);
+  }
+
+  function modelLabel(cli: DebateParticipant, model: string) {
+    const src = sources.find((s) => s.cli === cli);
+    return src?.models.find((m) => m.id === model)?.label ?? model;
+  }
+
+  return (
+    <div className="participantPicker">
+      <div className="partChips">
+        {participants.map((p, index) => (
+          <span className="partChip on" key={`${p.cli}-${p.model}-${index}`}>
+            {plannerLabels[p.cli]}{p.model !== "default" ? ` · ${modelLabel(p.cli, p.model)}` : ""}
+            <button
+              className="partChipRemove"
+              onClick={() => onChange(participants.filter((_, i) => i !== index))}
+              title={text.remove}
+            >
+              <X size={11} />
+            </button>
+          </span>
+        ))}
+        {participants.length === 0 && <span className="partEmpty">{text.noParticipants}</span>}
+      </div>
+      <div className="partAddRow">
+        <select
+          className="pill"
+          value={addCli}
+          onChange={(e) => {
+            setAddCli(e.target.value as DebateParticipant);
+            setAddModel("default");
+          }}
+        >
+          <option value="">{text.addParticipant}</option>
+          {sources.map((s) => (
+            <option key={s.cli} value={s.cli}>{s.label}</option>
+          ))}
+        </select>
+        {activeSource && (
+          <select className="pill" value={addModel} onChange={(e) => setAddModel(e.target.value)}>
+            {activeSource.models.map((m) => (
+              <option key={m.id} value={m.id} disabled={m.limited}>{m.label}</option>
+            ))}
+          </select>
+        )}
+        <button className="iconRound" onClick={add} disabled={!addCli} title={text.addParticipant}>
+          <Plus size={15} />
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -2022,11 +2706,13 @@ function resetLabel(iso: string, language: Language) {
 function ActiveRunView({
   run,
   events,
-  language
+  language,
+  onOpenFile
 }: {
   run: Run | null;
   events: RunEvent[];
   language: Language;
+  onOpenFile?: (path: string) => void;
 }) {
   const text = uiText[language];
   const [briefExpanded, setBriefExpanded] = useState(true);
@@ -2060,6 +2746,13 @@ function ActiveRunView({
     const end = run.completedAt ? Date.parse(run.completedAt) : now;
     const diffSec = Math.max(0, Math.round((end - start) / 1000));
     return `${diffSec} ${text.elapsedSeconds}`;
+  };
+
+  const activityItems = buildActivityItems(events, language);
+  const fileChanges = buildFileChanges(events, language);
+  const openRunFile = (relativePath: string) => {
+    if (!run || !onOpenFile) return;
+    onOpenFile(`${run.workspacePath}/${relativePath}`);
   };
 
   return (
@@ -2102,6 +2795,56 @@ function ActiveRunView({
         )}
       </div>
 
+      <div className="runInsightGrid">
+        <section className="runInsightPanel activityPanel">
+          <div className="runInsightHeader">
+            <strong>{text.activity}</strong>
+            <span>{activityItems.length}</span>
+          </div>
+          <div className="activityList">
+            {activityItems.length ? (
+              activityItems.map((item) => (
+                <article className={`activityItem ${item.tone}`} key={item.id}>
+                  <span className="activityDot" />
+                  <div>
+                    <strong>{item.label}</strong>
+                    <p>{item.message}</p>
+                  </div>
+                  <time>{formatRunEventTime(item.createdAt)}</time>
+                </article>
+              ))
+            ) : (
+              <p className="runInsightEmpty">{text.noActivity}</p>
+            )}
+          </div>
+        </section>
+
+        <section className="runInsightPanel filesPanel">
+          <div className="runInsightHeader">
+            <strong>{text.changedFiles}</strong>
+            <span>{fileChanges.length}</span>
+          </div>
+          <div className="changedFileList">
+            {fileChanges.length ? (
+              fileChanges.map((file) => (
+                <button
+                  className={`changedFileRow ${file.type}`}
+                  key={file.path}
+                  disabled={file.type === "file_deleted"}
+                  onClick={() => file.type !== "file_deleted" && openRunFile(file.path)}
+                  title={text.openFile}
+                >
+                  <span>{file.label}</span>
+                  <code>{file.path}</code>
+                </button>
+              ))
+            ) : (
+              <p className="runInsightEmpty">{text.noChangedFiles}</p>
+            )}
+          </div>
+        </section>
+      </div>
+
       <div className="terminalConsole">
         <div className="terminalHeader">
           <span>{text.terminalTitle}</span>
@@ -2116,6 +2859,275 @@ function ActiveRunView({
       </div>
     </div>
   );
+}
+
+function buildActivityItems(events: RunEvent[], language: Language) {
+  const text = uiText[language];
+  return events
+    .filter((event) => event.type !== "stdout" && event.type !== "stderr")
+    .slice(-24)
+    .map((event) => {
+      const label =
+        event.type === "queued" ? text.waiting :
+        event.type === "started" ? text.started :
+        event.type === "agent_step" ? text.activity :
+        event.type === "completed" ? text.finished :
+        event.type === "failed" ? text.failedLabel :
+        event.type === "limit_detected" ? text.limitDetected :
+        event.type === "fallback_used" ? text.fallback :
+        event.type === "file_created" ? text.created :
+        event.type === "file_changed" ? text.changed :
+        event.type === "file_deleted" ? text.deleted :
+        event.type;
+      const tone =
+        event.type === "failed" || event.type === "limit_detected" ? "danger" :
+        event.type === "completed" || event.type.startsWith("file_") ? "success" :
+        event.type === "fallback_used" ? "warn" :
+        "info";
+      return {
+        id: event.id,
+        label,
+        tone,
+        message: event.agentId ? `${event.agentId}: ${event.message}` : event.message,
+        createdAt: event.createdAt
+      };
+    });
+}
+
+function buildFileChanges(events: RunEvent[], language: Language) {
+  const text = uiText[language];
+  const files = new Map<string, { path: string; type: "file_created" | "file_changed" | "file_deleted"; label: string }>();
+  for (const event of events) {
+    if (event.type !== "file_created" && event.type !== "file_changed" && event.type !== "file_deleted") continue;
+    const path = event.rawOutput || event.message;
+    files.set(path, {
+      path,
+      type: event.type,
+      label: event.type === "file_created" ? text.created : event.type === "file_changed" ? text.changed : text.deleted
+    });
+  }
+  return Array.from(files.values()).sort((a, b) => a.path.localeCompare(b.path));
+}
+
+function agentBadgeClass(agentId?: string | null) {
+  if (!agentId) return "system";
+  const id = agentId.toLowerCase();
+  if (id.includes("claude")) return "claude";
+  if (id.includes("codex")) return "codex";
+  if (id.includes("gemini") || id.includes("agy") || id.includes("antigravity")) return "antigravity";
+  return "system";
+}
+
+// Run event'lerini ajan bazında gruplar (dosya event'leri ayrı işlenir).
+function groupAgentEvents(events: RunEvent[]): Map<string, RunEvent[]> {
+  const groups = new Map<string, RunEvent[]>();
+  for (const event of events) {
+    if (event.type.startsWith("file_")) continue;
+    const key = event.agentId || "orkestra";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(event);
+  }
+  return groups;
+}
+
+// Her ajan için tek bir açılır-kapanır kart; son 5 işlemi gösterir.
+function AgentActivitySection({
+  events,
+  language,
+  onOpenFile
+}: {
+  events: RunEvent[];
+  language: Language;
+  onOpenFile?: (path: string) => void;
+}) {
+  const fileEvents = events.filter((event) => event.type.startsWith("file_"));
+  const groups = groupAgentEvents(events);
+  if (!groups.size && !fileEvents.length) return null;
+  return (
+    <div className="agentActivitySection">
+      {[...groups.entries()].map(([agentId, evts]) => (
+        <AgentActivityCard key={agentId} agentId={agentId} events={evts} />
+      ))}
+      {fileEvents.length > 0 && (
+        <FileChangeBundle files={fileEvents} language={language} onOpenFile={onOpenFile} />
+      )}
+    </div>
+  );
+}
+
+function AgentActivityCard({ agentId, events }: { agentId: string; events: RunEvent[] }) {
+  const [open, setOpen] = useState(false);
+  const last5 = events.slice(-5);
+  const latest = events[events.length - 1];
+  const done = events.some((e) => e.type === "completed");
+  const failed = events.some((e) => e.type === "failed" || e.type === "limit_detected");
+  const state = failed ? "failed" : done ? "completed" : "running";
+  return (
+    <div className={`agentActivityCard ${state}`}>
+      <div className="agentActivityHead" onClick={() => setOpen((o) => !o)}>
+        <span className={`agentDot ${state}`} />
+        <span className={`badge ${agentBadgeClass(agentId)}`}>{agentId}</span>
+        <span className="agentActivityLast">{latest?.message?.replace(/\s+/g, " ").slice(0, 64)}</span>
+        <span className="agentActivityCount">{events.length}</span>
+        {open ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+      </div>
+      {open && (
+        <div className="agentActivityBody">
+          {last5.map((event) => (
+            <div className={`agentActivityLine ${event.type}`} key={event.id}>
+              <time>{formatRunEventTime(event.createdAt)}</time>
+              <span>{(event.rawOutput || event.message).replace(/\s+/g, " ").slice(0, 220)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// file_* event'inin rawOutput'undan {path, adds, dels} çıkarır (JSON; değilse düz yol).
+function parseFileChange(event: RunEvent): { path: string; adds: number; dels: number } {
+  const raw = event.rawOutput || event.message || "";
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.path === "string") {
+      return { path: parsed.path, adds: Number(parsed.adds) || 0, dels: Number(parsed.dels) || 0 };
+    }
+  } catch {
+    // Düz yol (eski format veya PROMPT.md gibi).
+  }
+  return { path: raw, adds: 0, dels: 0 };
+}
+
+// Son haline göre dosya başına +/- toplar (en yeni event kazanır).
+function fileChangeSummary(events: RunEvent[]) {
+  const byPath = new Map<string, { path: string; type: RunEvent["type"]; adds: number; dels: number }>();
+  for (const event of events) {
+    if (event.type !== "file_created" && event.type !== "file_changed" && event.type !== "file_deleted") continue;
+    const { path, adds, dels } = parseFileChange(event);
+    byPath.set(path, { path, type: event.type, adds, dels });
+  }
+  return Array.from(byPath.values()).sort((a, b) => a.path.localeCompare(b.path));
+}
+
+function computeFileTotals(events: RunEvent[]) {
+  const files = fileChangeSummary(events);
+  return {
+    count: files.length,
+    adds: files.reduce((sum, f) => sum + f.adds, 0),
+    dels: files.reduce((sum, f) => sum + f.dels, 0)
+  };
+}
+
+function formatRunDuration(run: Run | null, now: number, text: { elapsedSeconds: string }) {
+  if (!run?.createdAt) return "";
+  const start = Date.parse(run.createdAt);
+  const end = run.completedAt ? Date.parse(run.completedAt) : now;
+  const sec = Math.max(0, Math.round((end - start) / 1000));
+  if (sec < 60) return `${sec} ${text.elapsedSeconds}`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}m ${s}s`;
+}
+
+// Claude tarzı "2 dosya düzenlendi · İncele · Geri Al" inline kartı.
+function FileChangeBundle({
+  files,
+  language,
+  onOpenFile
+}: {
+  files: RunEvent[];
+  language: Language;
+  onOpenFile?: (path: string) => void;
+}) {
+  const text = uiText[language];
+  const [open, setOpen] = useState(true);
+  const list = fileChangeSummary(files);
+  const totalAdds = list.reduce((sum, f) => sum + f.adds, 0);
+  const totalDels = list.reduce((sum, f) => sum + f.dels, 0);
+  return (
+    <div className="fileBundleCard">
+      <div className="fileBundleHead">
+        <div className="fileBundleIcon">
+          <Diamond size={14} />
+        </div>
+        <div className="fileBundleTitle">
+          <strong>{list.length} {text.fileEditedNoun}</strong>
+          <span className="fileBundleStat">
+            <span className="diffAdd">+{totalAdds}</span> <span className="diffDel">-{totalDels}</span>
+          </span>
+        </div>
+        <span className="fileBundleSpacer" />
+        <button className="fileBundleAction" onClick={() => setOpen((o) => !o)} title={text.review}>
+          {text.review}
+        </button>
+      </div>
+      {open && (
+        <div className="fileBundleList">
+          {list.map((file) => {
+            const tag =
+              file.type === "file_created" ? text.created :
+              file.type === "file_deleted" ? text.deleted :
+              text.changed;
+            return (
+              <button
+                key={file.path}
+                className={`fileBundleRow ${file.type}`}
+                disabled={file.type === "file_deleted" || !onOpenFile}
+                onClick={() => onOpenFile?.(file.path)}
+                title={text.openFile}
+              >
+                <code>{file.path}</code>
+                <span className="fileBundleRight">
+                  {(file.adds > 0 || file.dels > 0) && (
+                    <span className="fileBundleDiff">
+                      <span className="diffAdd">+{file.adds}</span> <span className="diffDel">-{file.dels}</span>
+                    </span>
+                  )}
+                  <span className="fileBundleTag">{tag}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Inline run durumu (started/agent_step/completed/failed) — küçük tek satır kart.
+function RunStatusInline({ event, language }: { event: RunEvent; language: Language }) {
+  const text = uiText[language];
+  const tone =
+    event.type === "failed" || event.type === "limit_detected" ? "danger" :
+    event.type === "completed" ? "success" :
+    event.type === "fallback_used" ? "warn" : "info";
+  const label =
+    event.type === "queued" ? text.waiting :
+    event.type === "started" ? text.started :
+    event.type === "agent_step" ? text.activity :
+    event.type === "completed" ? text.finished :
+    event.type === "failed" ? text.failedLabel :
+    event.type === "limit_detected" ? text.limitDetected :
+    event.type === "fallback_used" ? text.fallback :
+    event.type;
+  return (
+    <div className={`runStatusInline ${tone}`}>
+      <span className="runStatusInlineDot" />
+      <strong>{label}</strong>
+      <span className="runStatusInlineMsg">{event.agentId ? `${event.agentId}: ${event.message}` : event.message}</span>
+      <time>{formatRunEventTime(event.createdAt)}</time>
+    </div>
+  );
+}
+
+function formatRunEventTime(iso?: string) {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  } catch {
+    return "";
+  }
 }
 
 const CollapsibleTerminalLine = ({ event }: { event: RunEvent }) => {
@@ -2189,6 +3201,692 @@ function roleLabel(role: AgentRole, language: Language) {
   if (role === "reviewer") return text.reviewer;
   if (role === "fixer") return text.fixer;
   return text.custom;
+}
+
+// ─────────── File Explorer ───────────
+
+type FileEntry = { name: string; path: string; type: "file" | "dir"; size?: number };
+
+function FileExplorer({
+  language,
+  onOpenFile,
+  rootPath,
+  refreshKey = 0
+}: {
+  language: Language;
+  onOpenFile: (path: string) => void;
+  rootPath: string | null;
+  refreshKey?: number;
+}) {
+  const text = uiText[language];
+  const [rootEntries, setRootEntries] = useState<FileEntry[]>([]);
+  const [expanded, setExpanded] = useState<Record<string, FileEntry[]>>({});
+  const [loading, setLoading] = useState(Boolean(rootPath));
+
+  const loadDir = useCallback(async (dirPath?: string) => {
+    const target = dirPath ?? rootPath;
+    if (!target) return [];
+    const url = `/api/files?path=${encodeURIComponent(target)}`;
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const data = (await res.json()) as { entries: FileEntry[] };
+    return data.entries;
+  }, [rootPath]);
+
+  useEffect(() => {
+    setExpanded({});
+    if (!rootPath) {
+      setRootEntries([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    loadDir().then((entries) => { setRootEntries(entries); setLoading(false); }).catch(() => setLoading(false));
+  }, [loadDir, rootPath, refreshKey]);
+
+  const toggleDir = useCallback(async (dirPath: string) => {
+    if (expanded[dirPath]) {
+      setExpanded((prev) => { const next = { ...prev }; delete next[dirPath]; return next; });
+    } else {
+      const children = await loadDir(dirPath);
+      setExpanded((prev) => ({ ...prev, [dirPath]: children }));
+    }
+  }, [expanded, loadDir]);
+
+  const renderEntries = (entries: FileEntry[], depth: number): React.ReactNode =>
+    entries.map((entry) => {
+      const isOpen = Boolean(expanded[entry.path]);
+      return (
+        <div key={entry.path}>
+          <button
+            className={`explorerRow ${entry.type}`}
+            style={{ paddingLeft: `${12 + depth * 16}px` }}
+            onClick={() => entry.type === "dir" ? void toggleDir(entry.path) : onOpenFile(entry.path)}
+          >
+            {entry.type === "dir" ? (
+              <>
+                <ChevronRight size={12} className={`explorerChevron${isOpen ? " open" : ""}`} />
+                {isOpen ? <FolderOpen size={14} /> : <Folder size={14} />}
+              </>
+            ) : (
+              <>
+                <span style={{ width: 12 }} />
+                <FileIcon size={14} />
+              </>
+            )}
+            <span className="explorerName">{entry.name}</span>
+          </button>
+          {isOpen && expanded[entry.path] && renderEntries(expanded[entry.path], depth + 1)}
+        </div>
+      );
+    });
+
+  return (
+    <section className="glassPanel fileExplorer">
+      <div className="panelTitle split">
+        <span>
+          <Folder size={15} />
+          {text.explorer}
+        </span>
+        <button
+          className="iconButton"
+          disabled={!rootPath}
+          onClick={() => { setLoading(true); loadDir().then((e) => { setRootEntries(e); setLoading(false); }); }}
+          title={text.refresh}
+        >
+          <RefreshCw size={14} />
+        </button>
+      </div>
+      <div className="explorerBody">
+        {!rootPath ? (
+          <div className="explorerEmpty">
+            <Folder size={22} />
+            <strong>{text.noWorkspace}</strong>
+            <span>{text.noWorkspaceDesc}</span>
+          </div>
+        ) : loading ? (
+          <small style={{ padding: "8px", opacity: 0.6 }}>{text.readingCli}</small>
+        ) : (
+          renderEntries(rootEntries, 0)
+        )}
+      </div>
+    </section>
+  );
+}
+
+// ─────────── Code Chat Panel (compact) ───────────
+
+function FileDialog({
+  language,
+  rootPath,
+  refreshKey,
+  tabs,
+  activePath,
+  onOpenFile,
+  onSelect,
+  onCloseTab,
+  onClose
+}: {
+  language: Language;
+  rootPath: string | null;
+  refreshKey: number;
+  tabs: OpenFileTab[];
+  activePath: string | null;
+  onOpenFile: (path: string) => void;
+  onSelect: (path: string) => void;
+  onCloseTab: (path: string) => void;
+  onClose: () => void;
+}) {
+  const text = uiText[language];
+  const activeTab = tabs.find((tab) => tab.path === activePath) ?? tabs[0];
+
+  return (
+    <div className="fileDialogOverlay" onMouseDown={onClose}>
+      <div className="fileDialog" onMouseDown={(event) => event.stopPropagation()}>
+        <aside className="fileDialogExplorer">
+          <FileExplorer language={language} rootPath={rootPath} refreshKey={refreshKey} onOpenFile={onOpenFile} />
+        </aside>
+        <section className="fileDialogMain">
+          <div className="fileDialogHeader">
+            <div className="fileTabs">
+              {tabs.map((tab) => (
+                <button
+                  className={`fileTab${tab.path === activeTab?.path ? " active" : ""}`}
+                  key={tab.path}
+                  onClick={() => onSelect(tab.path)}
+                  title={tab.path}
+                >
+                  <FileIcon size={13} />
+                  <span>{tab.name}</span>
+                  <X
+                    size={13}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onCloseTab(tab.path);
+                    }}
+                  />
+                </button>
+              ))}
+            </div>
+            <button className="iconButton" onClick={onClose} title={text.close}>
+              <X size={16} />
+            </button>
+          </div>
+          {activeTab ? (
+            <pre className="fileDialogContent"><code>{activeTab.content}</code></pre>
+          ) : (
+            <div className="previewEmpty">
+              <FileIcon size={36} />
+              <h4>{text.fileViewer}</h4>
+              <p>{text.openFile}</p>
+            </div>
+          )}
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function IntegratedTerminal({
+  language,
+  open,
+  sessions,
+  activeId,
+  outputs,
+  onToggle,
+  onCreate,
+  onClose,
+  onSelect,
+  onInput
+}: {
+  language: Language;
+  open: boolean;
+  sessions: TerminalSessionInfo[];
+  activeId: string | null;
+  outputs: Record<string, string>;
+  onToggle: () => void;
+  onCreate: (shell: "powershell" | "cmd") => void;
+  onClose: (id: string) => void;
+  onSelect: (id: string) => void;
+  onInput: (id: string, value: string) => void;
+}) {
+  const text = uiText[language];
+  const [command, setCommand] = useState("");
+  const outputRef = useRef<HTMLPreElement | null>(null);
+  const active = sessions.find((session) => session.id === activeId) ?? sessions[0];
+
+  useEffect(() => {
+    outputRef.current?.scrollTo({ top: outputRef.current.scrollHeight });
+  }, [outputs, active?.id]);
+
+  if (!open) {
+    return (
+      <button className="terminalCollapsed" onClick={onToggle} title={text.toggleTerminal}>
+        <Terminal size={15} />
+        <span>{text.terminal}</span>
+        <kbd>Ctrl+"</kbd>
+      </button>
+    );
+  }
+
+  return (
+    <section className="integratedTerminal">
+      <div className="terminalTopbar">
+        <div className="terminalTabs">
+          {sessions.map((session) => (
+            <button
+              className={`terminalTab${session.id === active?.id ? " active" : ""}`}
+              key={session.id}
+              onClick={() => onSelect(session.id)}
+            >
+              <SquareTerminal size={13} />
+              <span>{session.name}</span>
+              <X
+                size={12}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onClose(session.id);
+                }}
+              />
+            </button>
+          ))}
+        </div>
+        <div className="terminalActions">
+          <button onClick={() => onCreate("powershell")}>{text.newPowerShell}</button>
+          <button onClick={() => onCreate("cmd")}>{text.newCmd}</button>
+          <button className="iconButton" onClick={onToggle} title={text.closeTerminal}>
+            <X size={14} />
+          </button>
+        </div>
+      </div>
+      {active ? (
+        <>
+          <pre ref={outputRef} className="integratedTerminalOutput">{outputs[active.id] || ""}</pre>
+          <form
+            className="terminalInputRow"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const value = command.trimEnd();
+              if (!value) return;
+              onInput(active.id, value);
+              setCommand("");
+            }}
+          >
+            <span>{active.shell === "cmd" ? "cmd>" : "PS>"}</span>
+            <input
+              value={command}
+              placeholder={text.terminalPlaceholder}
+              onChange={(event) => setCommand(event.target.value)}
+            />
+          </form>
+        </>
+      ) : (
+        <div className="terminalEmpty">
+          <SquareTerminal size={28} />
+          <p>{text.noTerminal}</p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function CodeChatPanel({
+  language, messages, value, selectedPlanner, selectedModel, modelOptions,
+  selectedEffort, onEffortChange, selectedDetailLevel, onDetailLevelChange,
+  mode, onModeChange, multiAvailable, cliOptions, singleCli, onSingleCliChange,
+  thinking, onModelChange, onChange, onSend, onClear, onCreateBrief, onCreatePlan, onStart,
+  runActive, onAddNote, onStopRun,
+  attachments, onAddImage, onRemoveImage,
+  conversations, activeConversationId, onOpenConversation, onDeleteConversation, onNewChat,
+  run, events, onOpenFile, onTogglePreview, previewOpen
+}: {
+  language: Language;
+  messages: ChatMessage[];
+  value: string;
+  selectedPlanner: PlannerChoice;
+  selectedModel: string;
+  modelOptions: ModelOption[];
+  selectedEffort: "low" | "medium" | "high";
+  onEffortChange: (e: "low" | "medium" | "high") => void;
+  selectedDetailLevel: "low" | "medium" | "high";
+  onDetailLevelChange: (e: "low" | "medium" | "high") => void;
+  mode: ChatMode;
+  onModeChange: (m: ChatMode) => void;
+  multiAvailable: boolean;
+  cliOptions: DebateParticipant[];
+  singleCli: DebateParticipant;
+  onSingleCliChange: (id: DebateParticipant) => void;
+  thinking: boolean;
+  onModelChange: (m: string) => void;
+  onChange: (v: string) => void;
+  onSend: (t?: string) => void;
+  onClear: () => void;
+  onCreateBrief: () => void;
+  onCreatePlan: () => void;
+  onStart: () => void;
+  runActive: boolean;
+  onAddNote: (note: string) => void;
+  onStopRun: () => void;
+  attachments: { path: string; name: string; preview: string }[];
+  onAddImage: (file: File) => void;
+  onRemoveImage: (path: string) => void;
+  conversations: StoredConversation[];
+  activeConversationId: string;
+  onOpenConversation: (id: string) => void;
+  onDeleteConversation: (id: string) => void;
+  onNewChat: () => void;
+  run: Run | null;
+  events: RunEvent[];
+  onOpenFile?: (path: string) => void;
+  onTogglePreview: () => void;
+  previewOpen: boolean;
+}) {
+  const text = uiText[language];
+  const plannerLabels = plannerLabelsByLanguage[language];
+  const modeMeta = modeMetaByLanguage[language];
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const recognitionRef = useRef<any>(null);
+  const [listening, setListening] = useState(false);
+  const [briefOpen, setBriefOpen] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [now, setNow] = useState(Date.now());
+  const voiceSupported = typeof window !== "undefined" && Boolean((window as any).webkitSpeechRecognition || (window as any).SpeechRecognition);
+
+  function toggleVoice() {
+    if (listening) {
+      recognitionRef.current?.stop();
+      return;
+    }
+    const Recognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+    if (!Recognition) return;
+    const recognition = new Recognition();
+    recognition.lang = language === "tr" ? "tr-TR" : "en-US";
+    recognition.interimResults = false;
+    recognition.continuous = false;
+    recognition.onresult = (event: any) => {
+      const transcript = Array.from(event.results).map((r: any) => r[0]?.transcript ?? "").join(" ").trim();
+      if (transcript) onChange(value.trim() ? `${value.trim()} ${transcript}` : transcript);
+    };
+    recognition.onend = () => setListening(false);
+    recognition.onerror = () => setListening(false);
+    recognitionRef.current = recognition;
+    setListening(true);
+    recognition.start();
+  }
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages.length, events.length, thinking]);
+
+  // Aktif run varsa süre sayacını canlı tut.
+  useEffect(() => {
+    if (run && run.status === "running") {
+      const id = setInterval(() => setNow(Date.now()), 1000);
+      return () => clearInterval(id);
+    }
+  }, [run?.status, run?.id]);
+
+  const runDuration = formatRunDuration(run, now, text);
+  const fileTotals = computeFileTotals(events);
+
+  return (
+    <section className="codeChatPanel glassPanel">
+      <div className="codeChatHeader">
+        <div className="panelTitle">
+          <MessageCircle size={15} />
+          <span>{text.codeChat}</span>
+          <strong>{plannerLabels[selectedPlanner]}</strong>
+        </div>
+        <div className="codeChatTools">
+          <button className="ghostButton" onClick={onNewChat} title={text.newChat}>
+            <Plus size={13} />
+            {text.new}
+          </button>
+          <button className="ghostButton" onClick={() => setShowHistory(true)} title={text.history}>
+            <History size={13} />
+            {text.history}
+          </button>
+          <button className="ghostButton" onClick={onTogglePreview} title={text.togglePreview}>
+            {previewOpen ? <PanelRightClose size={13} /> : <PanelRightOpen size={13} />}
+            {text.preview}
+          </button>
+          <button className="ghostButton" onClick={onClear} title={text.clearChat}>{text.clear}</button>
+          <button className="ghostButton" onClick={onCreateBrief} title={text.createBrief}>
+            <FileText size={13} />
+            Brief
+          </button>
+          <button className="ghostButton" onClick={onCreatePlan} title={text.teamPlanTitle}>
+            <Users size={13} />
+            {text.teamPlan}
+          </button>
+          {runActive && (
+            <button className="ghostButton stopButton" onClick={onStopRun} title={text.stop}>
+              <X size={13} />
+              {text.stop}
+            </button>
+          )}
+          <button className="ghostButton startButton" onClick={onStart} title={text.startRunTitle}>
+            <Play size={13} />
+            {text.startRun}
+          </button>
+        </div>
+      </div>
+
+      {run && (
+        <div className={`runBanner status-${run.status}`}>
+          <div className="runBannerMain">
+            <span className={`runBannerDot ${run.status}`} />
+            <strong>{run.activeStep || run.status}</strong>
+            <span className="runBannerMeta">{runDuration}</span>
+            {fileTotals.count > 0 && (
+              <span className="runBannerMeta">
+                {fileTotals.count} {text.fileEditedNoun} · <span className="diffAdd">+{fileTotals.adds}</span> <span className="diffDel">-{fileTotals.dels}</span>
+              </span>
+            )}
+          </div>
+          <button
+            className="runBannerBriefBtn"
+            onClick={() => setBriefOpen((open) => !open)}
+            title={text.briefShartname}
+          >
+            {briefOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            Brief
+          </button>
+        </div>
+      )}
+      {run && briefOpen && (
+        <div className="runBriefInline">
+          <pre>{run.prompt}</pre>
+        </div>
+      )}
+
+      <div className="codeChatMessages">
+        {messages.map((msg) => (
+          <article key={msg.id ?? `${msg.role}-${msg.createdAt}`} className={`chatBubble ${msg.role} compact`}>
+            {msg.role === "assistant" && (
+              <div className="messageMeta">
+                <Bot size={12} />
+                <span>{msg.modelLabel ?? "Orkestra"}</span>
+              </div>
+            )}
+            <pre>{msg.content}</pre>
+          </article>
+        ))}
+        {run && <AgentActivitySection events={events} language={language} onOpenFile={onOpenFile} />}
+        {thinking && (
+          <article className="chatBubble assistant thinking compact">
+            <div className="typingDots"><span /><span /><span /></div>
+          </article>
+        )}
+        <div ref={bottomRef} />
+      </div>
+
+      <div className="codeChatComposer">
+        <div className="codeChatComposerRow">
+          <div className="modeSwitch compact">
+            {(["single", "multi", "debate"] as ChatMode[]).map((item) => {
+              const disabled = item !== "single" && !multiAvailable;
+              return (
+                <button
+                  key={item}
+                  className={`modeTab${mode === item ? " on" : ""}${item === "debate" ? " debate" : ""}`}
+                  disabled={disabled}
+                  onClick={() => onModeChange(item)}
+                  title={modeMeta[item].desc}
+                >
+                  {item === "single" && <Bot size={13} />}
+                  {item === "multi" && <Users size={13} />}
+                  {item === "debate" && <Swords size={13} />}
+                  {modeMeta[item].label}
+                </button>
+              );
+            })}
+          </div>
+          {mode === "single" && (
+            <select
+              className="pill"
+              value={cliOptions.includes(singleCli) ? singleCli : ""}
+              disabled={!cliOptions.length}
+              onChange={(e) => onSingleCliChange(e.target.value as DebateParticipant)}
+            >
+              {!cliOptions.length && <option value="">{text.noCli}</option>}
+              {cliOptions.map((id) => <option key={id} value={id}>{plannerLabels[id]}</option>)}
+            </select>
+          )}
+          {mode === "single" && (
+            <select className="pill" value={selectedModel} onChange={(e) => onModelChange(e.target.value)}>
+              {modelOptions.map((m) => (
+                <option key={m.id} value={m.id} disabled={m.limited}>{m.label}{m.limited ? ` - ${text.limited}` : ""}</option>
+              ))}
+            </select>
+          )}
+          <select
+            className="pill"
+            value={selectedDetailLevel}
+            title={text.detailLevelTitle}
+            onChange={(e) => onDetailLevelChange(e.target.value as "low" | "medium" | "high")}
+          >
+            <option value="low">{text.detailLow}</option>
+            <option value="medium">{text.detailMedium}</option>
+            <option value="high">{text.detailHigh}</option>
+          </select>
+        </div>
+        {attachments.length > 0 && (
+          <div className="attachmentRow">
+            {attachments.map((item) => (
+              <div className="attachmentChip" key={item.path}>
+                <img src={item.preview} alt={item.name} />
+                <span>{item.name}</span>
+                <button onClick={() => onRemoveImage(item.path)} title={text.removeAttachment}>
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          hidden
+          onChange={(e) => {
+            Array.from(e.target.files ?? []).forEach((file) => onAddImage(file));
+            e.target.value = "";
+          }}
+        />
+        <div className="codeChatInputRow">
+          <button className="iconRound" onClick={() => fileInputRef.current?.click()} title={text.addImage}>
+            <Plus size={16} />
+          </button>
+          <textarea
+            className="codeChatInput"
+            value={value}
+            placeholder={runActive ? text.steeringPlaceholder : text.composerPlaceholder}
+            onChange={(e) => onChange(e.target.value)}
+            onPaste={(e) => {
+              const images = Array.from(e.clipboardData.items)
+                .filter((it) => it.type.startsWith("image/"))
+                .map((it) => it.getAsFile())
+                .filter((f): f is File => Boolean(f));
+              if (images.length) {
+                e.preventDefault();
+                images.forEach((file) => onAddImage(file));
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                if (runActive) {
+                  if (value.trim()) { onAddNote(value); onChange(""); }
+                } else onSend();
+              }
+            }}
+            rows={2}
+          />
+          {voiceSupported && (
+            <button className={`iconRound${listening ? " recording" : ""}`} onClick={toggleVoice} title={text.voiceInput}>
+              <Mic size={16} />
+            </button>
+          )}
+          {runActive ? (
+            <button
+              className="iconRound sendCircle"
+              disabled={!value.trim()}
+              onClick={() => { if (value.trim()) { onAddNote(value); onChange(""); } }}
+              title={text.addNote}
+            >
+              <ArrowUp size={16} />
+            </button>
+          ) : (
+            <button
+              className="iconRound sendCircle"
+              disabled={(!value.trim() && !attachments.length) || thinking || !cliOptions.length}
+              onClick={() => onSend()}
+              title={text.send}
+            >
+              <ArrowUp size={16} />
+            </button>
+          )}
+        </div>
+      </div>
+      <HistoryDialog
+        open={showHistory}
+        onClose={() => setShowHistory(false)}
+        conversations={conversations}
+        activeConversationId={activeConversationId}
+        onOpenConversation={onOpenConversation}
+        onDeleteConversation={onDeleteConversation}
+        language={language}
+      />
+    </section>
+  );
+}
+
+// ─────────── Browser Preview ───────────
+
+function BrowserPreview({ run, language, onClose }: { run: Run | null; language: Language; onClose: () => void }) {
+  const text = uiText[language];
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [previewAvailable, setPreviewAvailable] = useState(false);
+  const serverOrigin = `${window.location.protocol}//${window.location.hostname}:8787`;
+  const previewUrl = run ? `${serverOrigin}/preview/${run.id}/index.html` : null;
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!previewUrl) {
+      setPreviewAvailable(false);
+      return;
+    }
+    fetch(previewUrl, { cache: "no-store" })
+      .then((response) => {
+        if (!cancelled) setPreviewAvailable(response.ok);
+      })
+      .catch(() => {
+        if (!cancelled) setPreviewAvailable(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [previewUrl, refreshKey]);
+
+  return (
+    <section className="glassPanel browserPreview">
+      <div className="previewHeader">
+        <div className="panelTitle">
+          <Globe size={15} />
+          <span>{text.preview}</span>
+        </div>
+        <div className="previewActions">
+          {previewUrl && previewAvailable && (
+            <>
+              <button className="iconButton" onClick={() => setRefreshKey((k) => k + 1)} title={text.refreshPreview}>
+                <RefreshCw size={13} />
+              </button>
+              <button className="iconButton" onClick={() => window.open(previewUrl, "_blank")} title={text.openInBrowser}>
+                <ExternalLink size={13} />
+              </button>
+            </>
+          )}
+          <button className="iconButton" onClick={onClose} title={text.close}>
+            <X size={14} />
+          </button>
+        </div>
+      </div>
+      <div className="previewBody">
+        {previewUrl && previewAvailable ? (
+          <iframe key={refreshKey} src={previewUrl} className="previewFrame" title="Preview" sandbox="allow-scripts allow-same-origin" />
+        ) : (
+          <div className="previewEmpty">
+            <Eye size={36} />
+            <h4>{text.noPreview}</h4>
+            <p>{text.noPreviewDesc}</p>
+          </div>
+        )}
+      </div>
+    </section>
+  );
 }
 
 createRoot(document.getElementById("root")!).render(

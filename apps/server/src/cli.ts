@@ -13,6 +13,12 @@ const loggedOutOverrides = new Set<PlannerId>();
 
 export type PlannerId = "claude" | "codex" | "antigravity";
 export type PlannerSelection = PlannerId | "auto" | "all";
+// Paralel/Tartisma katilimcisi: ayni CLI'den farkli modeller ayri katilimci olabilir.
+export type Participant = { cli: PlannerId; model?: string };
+
+function participantLabel(cli: PlannerId, model?: string) {
+  return model && model !== "default" ? `${modelLabel(cli)} · ${model}` : modelLabel(cli);
+}
 
 export async function runPlannerChat(
   preferred: PlannerSelection,
@@ -20,14 +26,21 @@ export async function runPlannerChat(
   history: ChatMessage[],
   model?: string,
   effort?: EffortLevel,
-  detailLevel?: "low" | "medium" | "high"
+  detailLevel?: "low" | "medium" | "high",
+  participants?: Participant[]
 ) {
   if (preferred === "all") {
-    const statuses = await getCliStatuses();
-    const planners = statuses
-      .filter((status) => status.authenticated && status.quotaOk)
-      .map((status) => status.id);
-    if (!planners.length) {
+    // Katilimcilar verilmisse (CLI+model) onlari kullan; yoksa tum dogrulanmis CLI'lar (default model).
+    let people: Participant[];
+    if (participants && participants.length) {
+      people = participants;
+    } else {
+      const statuses = await getCliStatuses();
+      people = statuses
+        .filter((status) => status.authenticated && status.quotaOk)
+        .map((status) => ({ cli: status.id, model: undefined as string | undefined }));
+    }
+    if (!people.length) {
       return {
         planner: "local",
         modelLabel: "Sistem",
@@ -36,7 +49,9 @@ export async function runPlannerChat(
         error: "Doğrulanmış CLI yok."
       };
     }
-    const results = await Promise.all(planners.map((planner) => runSinglePlanner(planner, message, history, model, effort, detailLevel)));
+    const results = await Promise.all(
+      people.map((p) => runSinglePlanner(p.cli, message, history, p.model ?? model, effort, detailLevel, participantLabel(p.cli, p.model)))
+    );
     const allFailed = results.every((result) => result.usedFallback);
     return {
       planner: "all",
@@ -90,13 +105,14 @@ export async function runPlannerChat(
   };
 }
 
-async function runSinglePlanner(planner: PlannerId, message: string, history: ChatMessage[], model?: string, effort?: EffortLevel, detailLevel?: "low" | "medium" | "high") {
+async function runSinglePlanner(planner: PlannerId, message: string, history: ChatMessage[], model?: string, effort?: EffortLevel, detailLevel?: "low" | "medium" | "high", displayLabel?: string) {
+  const labelText = displayLabel ?? modelLabel(planner);
   try {
     await assertPlannerReady(planner);
     const output = cleanPlannerOutput(await callPlanner(planner, message, history, model, effort, detailLevel));
     return {
       planner,
-      modelLabel: modelLabel(planner),
+      modelLabel: labelText,
       output,
       usedFallback: false
     };
@@ -106,17 +122,17 @@ async function runSinglePlanner(planner: PlannerId, message: string, history: Ch
     if (output !== rawOutput && !output.includes("thread.started")) {
       return {
         planner,
-        modelLabel: modelLabel(planner),
+        modelLabel: labelText,
         output,
         usedFallback: false
       };
     }
     return {
       planner,
-      modelLabel: modelLabel(planner),
+      modelLabel: labelText,
       output: plannerErrorOutput(planner, output),
       usedFallback: true,
-      error: `${label(planner)}: ${plannerErrorOutput(planner, output)}`
+      error: `${labelText}: ${plannerErrorOutput(planner, output)}`
     };
   }
 }
@@ -204,6 +220,72 @@ function localBriefTemplate(history: ChatMessage[], message?: string) {
     "## Test ve Doğrulama",
     "- "
   ].join("\n");
+}
+
+// ----- Ekip Planı (Faz 4) -----
+// Plancı, projeyi alt-görevlere böler ve JSON olarak döner. Her görev: id, title,
+// role (planner/builder/reviewer/fixer), folder (paralel izolasyon), dependsOn.
+export async function generatePlan(history: ChatMessage[], message?: string, preferred?: PlannerSelection) {
+  const order: PlannerId[] =
+    preferred && preferred !== "auto" && preferred !== "all" ? [preferred] : ["codex", "claude", "antigravity"];
+  for (const planner of order) {
+    try {
+      await assertPlannerReady(planner);
+      const raw = await callPlannerRaw(planner, buildPlanPrompt(history, message));
+      const tasks = parsePlanTasks(cleanPlannerOutput(raw));
+      if (tasks.length) {
+        return { tasks, planner, modelLabel: modelLabel(planner) };
+      }
+    } catch {
+      // sonraki ajana gec
+    }
+  }
+  // Plancı üretemezse: tek görevlik basit plan.
+  const goal = message || history.filter((m) => m.role === "user").slice(-1)[0]?.content || "Proje";
+  return {
+    tasks: [{ id: "task1", title: goal, role: "builder", folder: "", dependsOn: [] }],
+    planner: "local",
+    modelLabel: "Yerel şablon"
+  };
+}
+
+function buildPlanPrompt(history: ChatMessage[], message?: string) {
+  return [
+    "Sen Orkestra ekip plancısısın. Aşağıdaki projeyi paralel/sıralı çalıştırılabilecek ALT-GÖREVLERE böl.",
+    "Çıktıyı SADECE geçerli JSON olarak ver (başka metin yok). Şema:",
+    '{ "tasks": [ { "id": "kisa-id", "title": "ne yapılacağı (kısa, net)", "role": "builder", "folder": "klasor-adi", "dependsOn": ["onceki-id"] } ] }',
+    "Kurallar:",
+    "- role yalnızca: planner | builder | reviewer | fixer.",
+    "- Paralel çalışabilecek bağımsız işler (ör. backend ve frontend) AYRI klasörlerde olsun (folder farklı).",
+    "- Bağımlı işler dependsOn ile belirtilsin (ör. backend, database'e bağlı).",
+    "- 2-6 görev yeterli; abartma. id'ler kısa ve benzersiz olsun.",
+    "",
+    "Sohbet/istek:",
+    formatHistory(history) || "(boş)",
+    message ? `\nSon istek: ${message}` : ""
+  ].join("\n");
+}
+
+function parsePlanTasks(output: string): Array<{ id: string; title: string; role?: string; folder?: string; dependsOn?: string[] }> {
+  // JSON'u metin içinden ayıkla.
+  const match = output.match(/\{[\s\S]*\}/);
+  if (!match) return [];
+  try {
+    const parsed = JSON.parse(match[0]) as { tasks?: any[] };
+    if (!Array.isArray(parsed.tasks)) return [];
+    const allowedRoles = new Set(["planner", "builder", "reviewer", "fixer"]);
+    return parsed.tasks
+      .filter((t) => t && typeof t.title === "string")
+      .map((t, i) => ({
+        id: typeof t.id === "string" && t.id.trim() ? t.id.trim() : `task${i + 1}`,
+        title: String(t.title).trim(),
+        role: allowedRoles.has(t.role) ? t.role : "builder",
+        folder: typeof t.folder === "string" ? t.folder.replace(/[^a-z0-9._/-]/gi, "").slice(0, 60) : "",
+        dependsOn: Array.isArray(t.dependsOn) ? t.dependsOn.filter((d: any) => typeof d === "string") : []
+      }));
+  } catch {
+    return [];
+  }
 }
 
 export async function getCliStatuses(): Promise<CliToolStatus[]> {
@@ -476,7 +558,7 @@ export type DebateEvent =
   | { type: "done" };
 
 export async function* runDebate(
-  participants: PlannerId[],
+  participants: Participant[],
   message: string,
   history: ChatMessage[],
   rounds: number,
@@ -484,33 +566,36 @@ export async function* runDebate(
   effort?: EffortLevel,
   detailLevel?: "low" | "medium" | "high"
 ): AsyncGenerator<DebateEvent> {
-  const active: PlannerId[] = [];
-  for (const planner of participants) {
+  const active: Participant[] = [];
+  for (const person of participants) {
     try {
-      await assertPlannerReady(planner);
-      active.push(planner);
+      await assertPlannerReady(person.cli);
+      active.push(person);
     } catch {
       // Limitli veya giris yapilmamis ajan tartismadan cikarilir.
     }
   }
   if (active.length < 2) {
-    yield { type: "error", planner: active[0] ?? "claude", modelLabel: "Sistem", message: "Tartışma için en az iki doğrulanmış ajan gerekli." };
+    yield { type: "error", planner: active[0]?.cli ?? "claude", modelLabel: "Sistem", message: "Tartışma için en az iki doğrulanmış ajan gerekli." };
     yield { type: "done" };
     return;
   }
 
+  const activeLabels = active.map((p) => participantLabel(p.cli, p.model));
   const turns: DebateTurn[] = [];
   const safeRounds = Math.min(3, Math.max(1, rounds));
   for (let round = 1; round <= safeRounds; round++) {
-    for (const planner of active) {
-      const prompt = await buildDebatePromptWithDetail(planner, message, history, turns, round, safeRounds, active, detailLevel);
+    for (let i = 0; i < active.length; i++) {
+      const person = active[i];
+      const speakerLabel = activeLabels[i];
+      const prompt = await buildDebatePromptWithDetail(speakerLabel, message, history, turns, round, safeRounds, activeLabels, detailLevel);
       try {
-        const content = cleanPlannerOutput(await callPlannerRaw(planner, prompt, model, effort));
-        turns.push({ planner, modelLabel: modelLabel(planner), content });
-        yield { type: "message", planner, modelLabel: modelLabel(planner), content, round };
+        const content = cleanPlannerOutput(await callPlannerRaw(person.cli, prompt, person.model ?? model, effort));
+        turns.push({ planner: person.cli, modelLabel: speakerLabel, content });
+        yield { type: "message", planner: person.cli, modelLabel: speakerLabel, content, round };
       } catch (error) {
         const raw = error instanceof Error ? error.message : String(error);
-        yield { type: "error", planner, modelLabel: modelLabel(planner), message: cleanPlannerOutput(raw) };
+        yield { type: "error", planner: person.cli, modelLabel: speakerLabel, message: cleanPlannerOutput(raw) };
       }
     }
   }
@@ -518,7 +603,7 @@ export async function* runDebate(
   if (turns.length) {
     const summarizer = active[0];
     try {
-      const summary = cleanPlannerOutput(await callPlannerRaw(summarizer, buildDebateSummaryPrompt(message, turns), model, effort));
+      const summary = cleanPlannerOutput(await callPlannerRaw(summarizer.cli, buildDebateSummaryPrompt(message, turns), summarizer.model ?? model, effort));
       yield { type: "summary", content: summary };
     } catch {
       // Ozet basarisizsa sessiz gec; ham tartisma yine de kullanicida.
@@ -528,16 +613,16 @@ export async function* runDebate(
 }
 
 async function buildDebatePromptWithDetail(
-  planner: PlannerId,
+  speakerLabel: string,
   message: string,
   history: ChatMessage[],
   turns: DebateTurn[],
   round: number,
   totalRounds: number,
-  participants: PlannerId[],
+  participantLabels: string[],
   detailLevel?: "low" | "medium" | "high"
 ): Promise<string> {
-  const others = participants.filter((p) => p !== planner).map(label).join(", ");
+  const others = participantLabels.filter((p) => p !== speakerLabel).join(", ");
   
   // Format prior chat history with selected detail level
   const formattedHistory = await formatHistoryWithDetail(history, detailLevel);
@@ -581,7 +666,7 @@ async function buildDebatePromptWithDetail(
   }
 
   return [
-    `Sen ${modelLabel(planner)} olarak Orkestra'da bir KURUL TARTIŞMASInın katılımcısısın.`,
+    `Sen ${speakerLabel} olarak Orkestra'da bir KURUL TARTIŞMASInın katılımcısısın.`,
     `Diğer katılımcılar: ${others}. Tur ${round}/${totalRounds}.`,
     "Amaç birlikte en iyi kararı bulmak. Diğer ajanların söylediklerine DOĞRUDAN cevap ver: katıldığın/katılmadığın noktaları belirt, eksikleri tamamla, alternatif sun.",
     "Kısa ve öz konuş (en fazla birkaç paragraf), kendini tekrarlama, sadede gel. Türkçe yaz.",
@@ -595,7 +680,7 @@ async function buildDebatePromptWithDetail(
     "Şu ana kadarki tartışma:",
     debateSoFar,
     "",
-    `Şimdi ${modelLabel(planner)} olarak sıradaki katkını yap:`
+    `Şimdi ${speakerLabel} olarak sıradaki katkını yap:`
   ].join("\n");
 }
 

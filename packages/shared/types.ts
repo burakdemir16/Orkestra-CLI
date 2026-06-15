@@ -11,6 +11,10 @@ export type RunEventType =
   | "stderr"
   | "completed"
   | "failed"
+  | "agent_step"
+  | "file_created"
+  | "file_changed"
+  | "file_deleted"
   | "limit_detected"
   | "fallback_used";
 
@@ -61,8 +65,27 @@ export interface GitStatus {
   diffStat: string;
 }
 
+// Ekip planı: plancı projeyi alt-görevlere böler; orkestratör bağımlılığa göre
+// (bağımsızları paralel) çalıştırır. Her görev bir ajana/role + opsiyonel klasöre atanır.
+export interface PlanTask {
+  id: string;
+  title: string;
+  agentId?: string; // belirli ajan
+  role?: AgentRole; // agentId yoksa rol üzerinden seçilir
+  folder?: string; // alt-klasör (paralel görevlerin çakışmaması için)
+  dependsOn?: string[]; // önce bitmesi gereken görev id'leri
+}
+
+export interface PlanResponse {
+  tasks: PlanTask[];
+  planner: string;
+  modelLabel: string;
+}
+
 export interface CreateRunRequest {
   prompt: string;
+  workspacePath?: string; // verilirse aynı proje workspace'inde devam edilir (sürekli geliştirme)
+  tasks?: PlanTask[]; // verilirse ekip modu (orkestratör); yoksa doğrusal pipeline
 }
 
 export interface BriefRequest {
@@ -101,12 +124,19 @@ export interface ChatMessage {
 
 export type EffortLevel = "low" | "medium" | "high";
 
+// Paralel/Tartisma katilimcisi: ayni CLI'den farkli modeller ayri katilimci olabilir.
+export interface ChatParticipant {
+  cli: "claude" | "codex" | "antigravity";
+  model?: string;
+}
+
 export interface ChatRequest {
   message: string;
   history: ChatMessage[];
   planner?: "claude" | "codex" | "antigravity" | "auto" | "all";
   model?: string;
   effort?: EffortLevel;
+  participants?: ChatParticipant[]; // "all" (paralel) modunda CLI+model katilimcilari
   attachments?: string[]; // yuklenmis gorsel dosyalarinin mutlak yollari
   detailLevel?: "low" | "medium" | "high";
 }

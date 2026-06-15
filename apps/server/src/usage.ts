@@ -12,9 +12,11 @@ import type { CliUsage, ModelOption, UsageWindow } from "../../../packages/share
 // dovmemis olalim.
 const claudeDir = join(homedir(), ".claude");
 const codexDir = join(homedir(), ".codex");
-const ttlMs = 60_000;
+// Usage endpoint'leri (ozellikle Anthropic oauth/usage) siki rate-limit'li; az cagir.
+const ttlOkMs = 5 * 60_000; // basarili veriyi 5 dk taze tut
+const minRetryMs = 2 * 60_000; // 429/hata sonrasi en az 2 dk bekle (backoff)
 
-type CacheEntry = { at: number; value: CliUsage | undefined };
+type CacheEntry = { at: number; value: CliUsage | undefined; lastTry: number };
 const usageCache = new Map<string, CacheEntry>();
 
 function readJson<T>(path: string): T | undefined {
@@ -123,14 +125,25 @@ async function fetchCodexUsage(): Promise<CliUsage | undefined> {
 export async function getUsageFor(id: "claude" | "codex" | "antigravity"): Promise<CliUsage | undefined> {
   if (id === "antigravity") return undefined; // sinirsiz tier; 5s/haftalik penceresi yok
   const cached = usageCache.get(id);
-  if (cached && Date.now() - cached.at < ttlMs) return cached.value;
-  const value = id === "claude" ? await fetchClaudeUsage() : await fetchCodexUsage();
-  // Canli veri alinamazsa son bilinen degeri (varsa) stale isaretiyle koru.
-  if (!value && cached?.value) {
-    return { ...cached.value, stale: true };
+  const now = Date.now();
+
+  // Taze ve geçerli veri varsa doğrudan ver.
+  if (cached?.value && now - cached.at < ttlOkMs) return cached.value;
+
+  // Son denemeden bu yana çok az geçtiyse (429 backoff) API'yi dövme; eldeki son değeri stale ver.
+  if (cached && now - cached.lastTry < minRetryMs) {
+    return cached.value ? { ...cached.value, stale: true } : cached.value;
   }
-  usageCache.set(id, { at: Date.now(), value });
-  return value;
+
+  const value = id === "claude" ? await fetchClaudeUsage() : await fetchCodexUsage();
+  if (value) {
+    usageCache.set(id, { at: now, value, lastTry: now });
+    return value;
+  }
+
+  // Başarısız (429/ağ): son iyi değeri koru ve stale ver; deneme zamanını güncelle (backoff).
+  usageCache.set(id, { at: cached?.at ?? 0, value: cached?.value, lastTry: now });
+  return cached?.value ? { ...cached.value, stale: true } : undefined;
 }
 
 const modelsTtlMs = 5 * 60_000;
