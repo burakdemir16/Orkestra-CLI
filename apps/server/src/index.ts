@@ -55,7 +55,7 @@ app.post<{ Body: ChatRequest }>("/api/chat", async (request, reply) => {
   const augmentedMessage = attachments.length
     ? `${message}\n\n[Ekli görsel dosyaları — bunları oku ve yanıtında dikkate al:\n${attachments.join("\n")}]`
     : message;
-  const result = await runPlannerChat(request.body.planner ?? "auto", augmentedMessage, request.body.history ?? [], request.body.model, request.body.effort);
+  const result = await runPlannerChat(request.body.planner ?? "auto", augmentedMessage, request.body.history ?? [], request.body.model, request.body.effort, request.body.detailLevel);
   const action = detectPipelineIntent(message) ? "suggest_pipeline" : "none";
   const createdAt = new Date().toISOString();
   const messages = result.messages?.map((item) => ({
@@ -93,6 +93,7 @@ app.post<{
     rounds?: number;
     model?: string;
     effort?: EffortLevel;
+    detailLevel?: "low" | "medium" | "high";
   };
 }>("/api/debate", async (request, reply) => {
   const message = request.body.message?.trim();
@@ -112,7 +113,8 @@ app.post<{
       request.body.history ?? [],
       request.body.rounds ?? 1,
       request.body.model,
-      request.body.effort
+      request.body.effort,
+      request.body.detailLevel
     )) {
       reply.raw.write(`${JSON.stringify(event)}\n`);
     }

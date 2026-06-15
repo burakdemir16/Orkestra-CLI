@@ -19,7 +19,8 @@ export async function runPlannerChat(
   message: string,
   history: ChatMessage[],
   model?: string,
-  effort?: EffortLevel
+  effort?: EffortLevel,
+  detailLevel?: "low" | "medium" | "high"
 ) {
   if (preferred === "all") {
     const statuses = await getCliStatuses();
@@ -35,7 +36,7 @@ export async function runPlannerChat(
         error: "Doğrulanmış CLI yok."
       };
     }
-    const results = await Promise.all(planners.map((planner) => runSinglePlanner(planner, message, history, model, effort)));
+    const results = await Promise.all(planners.map((planner) => runSinglePlanner(planner, message, history, model, effort, detailLevel)));
     const allFailed = results.every((result) => result.usedFallback);
     return {
       planner: "all",
@@ -58,7 +59,7 @@ export async function runPlannerChat(
   for (const planner of order) {
     try {
       await assertPlannerReady(planner);
-      const output = await callPlanner(planner, message, history, model, effort);
+      const output = await callPlanner(planner, message, history, model, effort, detailLevel);
       return {
         planner,
         modelLabel: modelLabel(planner),
@@ -89,10 +90,10 @@ export async function runPlannerChat(
   };
 }
 
-async function runSinglePlanner(planner: PlannerId, message: string, history: ChatMessage[], model?: string, effort?: EffortLevel) {
+async function runSinglePlanner(planner: PlannerId, message: string, history: ChatMessage[], model?: string, effort?: EffortLevel, detailLevel?: "low" | "medium" | "high") {
   try {
     await assertPlannerReady(planner);
-    const output = cleanPlannerOutput(await callPlanner(planner, message, history, model, effort));
+    const output = cleanPlannerOutput(await callPlanner(planner, message, history, model, effort, detailLevel));
     return {
       planner,
       modelLabel: modelLabel(planner),
@@ -414,7 +415,8 @@ async function runClaude(prompt: string, model?: string, effort?: EffortLevel) {
   return runTool("claude", args, prompt, claudeTimeoutMs);
 }
 
-function buildClaudePrompt(message: string, history: ChatMessage[]) {
+async function buildClaudePrompt(message: string, history: ChatMessage[], detailLevel?: "low" | "medium" | "high") {
+  const formattedHistory = await formatHistoryWithDetail(history, detailLevel);
   return [
     "Sen Orkestra'nın planlayıcı ajanısın; bu bir sohbet oturumudur, kod tabanına müdahale etme.",
     "Aşağıdaki konuşma geçmişini dikkate al — geçmişte senin dışında Gemini ve Codex gibi başka AI'lar da yanıt vermiş olabilir, onların söylediklerini de bağlam olarak kullan.",
@@ -424,7 +426,7 @@ function buildClaudePrompt(message: string, history: ChatMessage[]) {
     "Yanıtını Türkçe, net ve aksiyon odaklı tut. Türkçe karakterleri doğru kullan.",
     "",
     "Konuşma geçmişi:",
-    formatHistory(history) || "(boş)",
+    formattedHistory || "(boş)",
     "",
     `Kullanıcı: ${message}`
   ].join("\n");
@@ -457,8 +459,8 @@ function loginCommand(id: PlannerId) {
   return "agy login";
 }
 
-function callPlanner(id: PlannerId, message: string, history: ChatMessage[], model?: string, effort?: EffortLevel) {
-  const prompt = id === "claude" ? buildClaudePrompt(message, history) : buildPlannerPrompt(message, history);
+async function callPlanner(id: PlannerId, message: string, history: ChatMessage[], model?: string, effort?: EffortLevel, detailLevel?: "low" | "medium" | "high") {
+  const prompt = id === "claude" ? await buildClaudePrompt(message, history, detailLevel) : await buildPlannerPrompt(message, history, detailLevel);
   return callPlannerRaw(id, prompt, model, effort);
 }
 
@@ -479,7 +481,8 @@ export async function* runDebate(
   history: ChatMessage[],
   rounds: number,
   model?: string,
-  effort?: EffortLevel
+  effort?: EffortLevel,
+  detailLevel?: "low" | "medium" | "high"
 ): AsyncGenerator<DebateEvent> {
   const active: PlannerId[] = [];
   for (const planner of participants) {
@@ -500,7 +503,7 @@ export async function* runDebate(
   const safeRounds = Math.min(3, Math.max(1, rounds));
   for (let round = 1; round <= safeRounds; round++) {
     for (const planner of active) {
-      const prompt = buildDebatePrompt(planner, message, history, turns, round, safeRounds, active);
+      const prompt = await buildDebatePromptWithDetail(planner, message, history, turns, round, safeRounds, active, detailLevel);
       try {
         const content = cleanPlannerOutput(await callPlannerRaw(planner, prompt, model, effort));
         turns.push({ planner, modelLabel: modelLabel(planner), content });
@@ -524,19 +527,59 @@ export async function* runDebate(
   yield { type: "done" };
 }
 
-function buildDebatePrompt(
+async function buildDebatePromptWithDetail(
   planner: PlannerId,
   message: string,
   history: ChatMessage[],
   turns: DebateTurn[],
   round: number,
   totalRounds: number,
-  participants: PlannerId[]
-) {
+  participants: PlannerId[],
+  detailLevel?: "low" | "medium" | "high"
+): Promise<string> {
   const others = participants.filter((p) => p !== planner).map(label).join(", ");
-  const debateSoFar = turns.length
-    ? turns.map((turn) => `${turn.modelLabel}: ${turn.content}`).join("\n\n")
-    : "(henüz kimse konuşmadı, tartışmayı sen açıyorsun)";
+  
+  // Format prior chat history with selected detail level
+  const formattedHistory = await formatHistoryWithDetail(history, detailLevel);
+
+  const level = detailLevel || "high";
+  const threshold = level === "low" ? 1 : level === "medium" ? 3 : 999;
+
+  let debateSoFar = "";
+  if (turns.length === 0) {
+    debateSoFar = "(henüz kimse konuşmadı, tartışmayı sen açıyorsun)";
+  } else if (turns.length <= threshold) {
+    debateSoFar = turns.map((turn) => `${turn.modelLabel}: ${turn.content}`).join("\n\n");
+  } else {
+    const olderTurns = turns.slice(0, -threshold);
+    const recentTurns = turns.slice(-threshold);
+
+    const formattedOlder = olderTurns.map((turn) => `${turn.modelLabel}: ${turn.content}`).join("\n\n");
+    const formattedRecent = recentTurns.map((turn) => `${turn.modelLabel}: ${turn.content}`).join("\n\n");
+
+    let olderSummary = "[Önceki kurul tartışması turları]";
+    try {
+      const summarizer = await getFirstReadyPlanner();
+      if (summarizer) {
+        const summaryPrompt = [
+          "Sen Orkestra kurul moderatörüsün. Aşağıdaki kurul tartışmasının şu ana kadarki kısmını çok kısa, net bir paragrafla Türkçe olarak özetle.",
+          "Sadece her ajanın temel argümanını ve varılan kararları belirt. Detayları atla.",
+          "",
+          "Tartışma kaydı:",
+          formattedOlder,
+          "",
+          "Şimdi kısa özetini yaz:"
+        ].join("\n");
+        const summaryRaw = await callPlannerRaw(summarizer, summaryPrompt);
+        olderSummary = `[Önceki Tartışma Turlarının Özeti: ${cleanPlannerOutput(summaryRaw)}]`;
+      }
+    } catch (err) {
+      console.error("buildDebatePromptWithDetail: özetleme hatası:", err);
+    }
+
+    debateSoFar = `${olderSummary}\n\n${formattedRecent}`;
+  }
+
   return [
     `Sen ${modelLabel(planner)} olarak Orkestra'da bir KURUL TARTIŞMASInın katılımcısısın.`,
     `Diğer katılımcılar: ${others}. Tur ${round}/${totalRounds}.`,
@@ -547,7 +590,7 @@ function buildDebatePrompt(
     message,
     "",
     "Önceki sohbet geçmişi:",
-    formatHistory(history) || "(boş)",
+    formattedHistory || "(boş)",
     "",
     "Şu ana kadarki tartışma:",
     debateSoFar,
@@ -840,12 +883,8 @@ function resolveTool(command: string) {
 
   return { executable: command, prefixArgs: [] as string[] };
 }
-
-// Paylasilan sohbet gecmisini kaynak etiketiyle bicimler; boylece her planlayici
-// kimin ne dedigini (Kullanici / Claude / Gemini / Codex) gorur.
 function formatHistory(history: ChatMessage[]) {
   return history
-    .slice(-12)
     .map((item) => {
       const who = item.role === "user" ? "Kullanıcı" : item.modelLabel || label(item.planner ?? "") || "Asistan";
       return `${who}: ${item.content}`;
@@ -853,7 +892,73 @@ function formatHistory(history: ChatMessage[]) {
     .join("\n");
 }
 
-function buildPlannerPrompt(message: string, history: ChatMessage[]) {
+async function getFirstReadyPlanner(): Promise<PlannerId | undefined> {
+  try {
+    const claudeStatus = await getClaudeStatus();
+    if (claudeStatus.installed && claudeStatus.authenticated) return "claude";
+  } catch {}
+  try {
+    const codexStatus = await getCodexStatus();
+    if (codexStatus.installed && codexStatus.authenticated) return "codex";
+  } catch {}
+  try {
+    const agyStatus = await getAntigravityStatus();
+    if (agyStatus.installed && agyStatus.authenticated) return "antigravity";
+  } catch {}
+  return undefined;
+}
+
+async function formatHistoryWithDetail(
+  history: ChatMessage[],
+  detailLevel?: "low" | "medium" | "high"
+): Promise<string> {
+  const level = detailLevel || "high";
+  const threshold = level === "low" ? 2 : level === "medium" ? 4 : 12;
+  
+  if (history.length <= threshold) {
+    return formatRawHistory(history);
+  }
+
+  const older = history.slice(0, -threshold);
+  const recent = history.slice(-threshold);
+
+  const formattedRecent = formatRawHistory(recent);
+  const formattedOlder = formatRawHistory(older);
+
+  try {
+    const summarizer = await getFirstReadyPlanner();
+    if (summarizer) {
+      const summaryPrompt = [
+        "Sen Orkestra moderatörüsün. Aşağıdaki konuşma geçmişini çok kısa, net bir paragrafla Türkçe olarak özetle.",
+        "Özette sadece konuşulan temel konuları ve varılan kararları belirt. Gereksiz detayları atla.",
+        "",
+        "Özetlenecek geçmiş:",
+        formattedOlder,
+        "",
+        "Şimdi kısa özetini yaz:"
+      ].join("\n");
+      const summaryRaw = await callPlannerRaw(summarizer, summaryPrompt);
+      const summary = cleanPlannerOutput(summaryRaw);
+      return `[Önceki Konuşma Özeti: ${summary}]\n\n${formattedRecent}`;
+    }
+  } catch (err) {
+    console.error("formatHistoryWithDetail: özetleme hatası, fallback uygulanıyor:", err);
+  }
+
+  return `[Önceki konuşmalar özetlenemedi; son ${threshold} mesaj gösteriliyor]\n\n${formattedRecent}`;
+}
+
+function formatRawHistory(messages: ChatMessage[]) {
+  return messages
+    .map((item) => {
+      const who = item.role === "user" ? "Kullanıcı" : item.modelLabel || label(item.planner ?? "") || "Asistan";
+      return `${who}: ${item.content}`;
+    })
+    .join("\n");
+}
+
+async function buildPlannerPrompt(message: string, history: ChatMessage[], detailLevel?: "low" | "medium" | "high") {
+  const formattedHistory = await formatHistoryWithDetail(history, detailLevel);
   return [
     "Sadece Orkestra chat gecmisini dikkate al; eski CLI/proje oturum baglamindan devam etme.",
     "Sen Orkestra'nın planlayıcı ajanısın. Geçmişte başka AI'lar (Claude, Gemini, Codex) da yanıt vermiş olabilir; onların mesajlarını da bağlam al.",
@@ -862,12 +967,11 @@ function buildPlannerPrompt(message: string, history: ChatMessage[]) {
     "Yanıtını Türkçe, net ve aksiyon odaklı tut. Türkçe karakterleri doğru kullan.",
     "",
     "Geçmiş:",
-    formatHistory(history) || "(boş)",
+    formattedHistory || "(boş)",
     "",
     `Kullanıcı: ${message}`
   ].join("\n");
 }
-
 function localPlannerReply(message: string) {
   if (detectPipelineIntent(message)) {
     return [

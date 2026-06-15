@@ -153,6 +153,10 @@ const uiText = {
     whichCli: "Which CLI",
     noCli: "No CLI",
     reasoningEffort: "Reasoning effort",
+    detailLevelTitle: "Detail Level (low: summarized history, medium: balanced, high: full history)",
+    detailLow: "Low (Summarized)",
+    detailMedium: "Balanced",
+    detailHigh: "Deep (Full)",
     voiceInput: "Voice input",
     searchChats: "Search chats...",
     noMatchingChats: "No matching chats.",
@@ -256,6 +260,10 @@ const uiText = {
     whichCli: "Hangi CLI",
     noCli: "CLI yok",
     reasoningEffort: "Akıl yürütme seviyesi",
+    detailLevelTitle: "Çalışma Seviyesi (düşük: özet geçmiş, dengeli: dengeli, derin: tam geçmiş)",
+    detailLow: "Düşük (Özetli)",
+    detailMedium: "Dengeli",
+    detailHigh: "Derin (Tam)",
     voiceInput: "Sesli giriş",
     searchChats: "Sohbetlerde ara...",
     noMatchingChats: "Eşleşen sohbet yok.",
@@ -405,6 +413,7 @@ function App() {
   const [conversations, setConversations] = useState<StoredConversation[]>([]);
   const [conversationId, setConversationId] = useState<string>(() => crypto.randomUUID());
   const [selectedEffort, setSelectedEffort] = useState<"low" | "medium" | "high">("low");
+  const [selectedDetailLevel, setSelectedDetailLevel] = useState<"low" | "medium" | "high">("high");
   const [debateParticipants, setDebateParticipants] = useState<DebateParticipant[]>([]);
   const [debateRounds, setDebateRounds] = useState(1);
   const [chatHeight, setChatHeight] = useState<number>(() => {
@@ -664,7 +673,8 @@ function App() {
         history,
         participants: debateParticipants,
         rounds: debateRounds,
-        effort: selectedEffort
+        effort: selectedEffort,
+        detailLevel: selectedDetailLevel
       })
     });
     if (!res.ok || !res.body) throw new Error(await res.text().catch(() => text.debateCouldNotStart));
@@ -732,6 +742,7 @@ function App() {
         planner: selectedPlanner,
         model: selectedModel,
         effort: selectedPlanner === "claude" || selectedPlanner === "codex" ? selectedEffort : undefined,
+        detailLevel: selectedDetailLevel,
         attachments: pending.map((item) => item.path)
       });
       const responseMessages = response.messages?.length ? response.messages : [response.message];
@@ -905,6 +916,8 @@ function App() {
             modelOptions={modelOptions}
             selectedEffort={selectedEffort}
             onEffortChange={setSelectedEffort}
+            selectedDetailLevel={selectedDetailLevel}
+            onDetailLevelChange={setSelectedDetailLevel}
             participantOptions={verifiedTools.map((tool) => ({ id: tool.id as DebateParticipant, label: displayToolName(tool.id) }))}
             debateParticipants={debateParticipants}
             onToggleParticipant={(id) =>
@@ -1150,6 +1163,8 @@ function ChatPanel({
   modelOptions,
   selectedEffort,
   onEffortChange,
+  selectedDetailLevel,
+  onDetailLevelChange,
   participantOptions,
   debateParticipants,
   onToggleParticipant,
@@ -1186,6 +1201,8 @@ function ChatPanel({
   modelOptions: ModelOption[];
   selectedEffort: "low" | "medium" | "high";
   onEffortChange: (effort: "low" | "medium" | "high") => void;
+  selectedDetailLevel: "low" | "medium" | "high";
+  onDetailLevelChange: (detailLevel: "low" | "medium" | "high") => void;
   participantOptions: { id: DebateParticipant; label: string }[];
   debateParticipants: DebateParticipant[];
   onToggleParticipant: (id: DebateParticipant) => void;
@@ -1531,6 +1548,16 @@ function ChatPanel({
                     <option value="high">High</option>
                   </select>
                 )}
+                <select
+                  className="pill"
+                  value={selectedDetailLevel}
+                  title={text.detailLevelTitle}
+                  onChange={(event) => onDetailLevelChange(event.target.value as "low" | "medium" | "high")}
+                >
+                  <option value="low">{text.detailLow}</option>
+                  <option value="medium">{text.detailMedium}</option>
+                  <option value="high">{text.detailHigh}</option>
+                </select>
               </div>
               <div className="composerBarRight">
                 {voiceSupported && (

@@ -108,6 +108,7 @@ export interface ChatRequest {
   model?: string;
   effort?: EffortLevel;
   attachments?: string[]; // yuklenmis gorsel dosyalarinin mutlak yollari
+  detailLevel?: "low" | "medium" | "high";
 }
 
 export interface UploadResponse {
