@@ -12,6 +12,13 @@ import {
   LogIn,
   LogOut,
   MessageCircle,
+  MessageSquare,
+  Code,
+  Terminal,
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  Cpu,
   Mic,
   Play,
   Plus,
@@ -213,7 +220,18 @@ const uiText = {
     briefCouldNotBeGenerated: "Brief could not be generated",
     completed: "completed",
     status: "Status",
-    system: "System"
+    system: "System",
+    tabChat: "Chat",
+    tabCode: "Code",
+    noActiveRunTitle: "No Active Coding Run",
+    noActiveRunDesc: "Select a previous execution from the history or start a new one by approving a Brief in the Chat tab.",
+    runDetails: "Run Details",
+    currentStep: "Current Step",
+    duration: "Duration",
+    workspacePath: "Workspace Path",
+    briefShartname: "Execution Brief",
+    terminalTitle: "Live Agent Execution Console",
+    elapsedSeconds: "seconds"
   },
   tr: {
     welcome: "Merhaba! Ben Orkestra Planlayıcısı. Proje planlamak, sohbet etmek veya kod yazmak için bana yazabilirsiniz.",
@@ -320,7 +338,18 @@ const uiText = {
     briefCouldNotBeGenerated: "Brief üretilemedi",
     completed: "tamamlandı",
     status: "Durum",
-    system: "Sistem"
+    system: "Sistem",
+    tabChat: "Sohbet",
+    tabCode: "Kodlama",
+    noActiveRunTitle: "Aktif Kodlama Görevi Yok",
+    noActiveRunDesc: "Sol panelden eski bir çalıştırma seçebilir veya Sohbet sekmesinden bir projeyi kararlaştırıp Brief oluşturarak yeni bir görev başlatabilirsiniz.",
+    runDetails: "Çalıştırma Detayları",
+    currentStep: "Aktif Aşama",
+    duration: "Süre",
+    workspacePath: "Çalışma Dizini",
+    briefShartname: "Görev Şartnamesi (Brief)",
+    terminalTitle: "Canlı Ajan İcra Konsolu",
+    elapsedSeconds: "saniye"
   }
 } as const;
 
@@ -385,6 +414,8 @@ function App() {
     const saved = localStorage.getItem("orkestra.theme");
     return saved === "dark" ? "dark" : "light";
   });
+
+  const [activeView, setActiveView] = useState<"chat" | "code">("chat");
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -833,6 +864,7 @@ function App() {
     setBriefOpen(false);
     setSuggestedPrompt(null);
     void startRun(text);
+    setActiveView("code");
   }
 
   async function openRun(run: Run) {
@@ -873,6 +905,22 @@ function App() {
           <strong>Orkestra</strong>
           <span>v2.0 Chat</span>
         </div>
+        <div className="viewSwitcher">
+          <button
+            className={activeView === "chat" ? "active" : ""}
+            onClick={() => setActiveView("chat")}
+          >
+            <MessageSquare size={16} />
+            <span>{text.tabChat}</span>
+          </button>
+          <button
+            className={activeView === "code" ? "active" : ""}
+            onClick={() => setActiveView("code")}
+          >
+            <Code size={16} />
+            <span>{text.tabCode}</span>
+          </button>
+        </div>
         <div className="headerActions">
           <button
             className="iconButton themeToggle"
@@ -894,78 +942,101 @@ function App() {
       </header>
 
       <section className="workspace">
-        <aside className="leftColumn">
-          <AgentCenter
-            language={language}
-            status={cliStatus}
-            gitStatus={gitStatus}
-            onRefresh={() => void refresh()}
-            onAction={(tool, action) => void runCliAction(tool, action)}
-          />
-          <RolePanel agents={agentOptions} language={language} />
-        </aside>
+        {activeView === "chat" ? (
+          <>
+            <aside className="leftColumn">
+              <AgentCenter
+                language={language}
+                status={cliStatus}
+                gitStatus={gitStatus}
+                onRefresh={() => void refresh()}
+                onAction={(tool, action) => void runCliAction(tool, action)}
+              />
+              <RolePanel agents={agentOptions} language={language} />
+            </aside>
 
-        <section className="centerColumn">
-          <div className="chatWrap" style={{ height: chatHeight }}>
-          <ChatPanel
-            language={language}
-            messages={messages}
-            value={chatInput}
-            selectedPlanner={selectedPlanner}
-            selectedModel={selectedModel}
-            modelOptions={modelOptions}
-            selectedEffort={selectedEffort}
-            onEffortChange={setSelectedEffort}
-            selectedDetailLevel={selectedDetailLevel}
-            onDetailLevelChange={setSelectedDetailLevel}
-            participantOptions={verifiedTools.map((tool) => ({ id: tool.id as DebateParticipant, label: displayToolName(tool.id) }))}
-            debateParticipants={debateParticipants}
-            onToggleParticipant={(id) =>
-              setDebateParticipants((current) =>
-                current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
-              )
-            }
-            debateRounds={debateRounds}
-            onRoundsChange={setDebateRounds}
-            mode={mode}
-            onModeChange={setMode}
-            multiAvailable={multiAvailable}
-            cliOptions={cliOptions}
-            singleCli={singleCli}
-            onSingleCliChange={setSingleCli}
-            thinking={isThinking}
-            suggestedPrompt={suggestedPrompt}
-            onModelChange={setSelectedModel}
-            onChange={setChatInput}
-            attachments={attachments}
-            onAddImage={(file) => void addImage(file)}
-            onRemoveImage={removeImage}
-            conversations={conversations}
-            activeConversationId={conversationId}
-            onNewChat={newChat}
-            onOpenConversation={openConversation}
-            onDeleteConversation={deleteConversation}
-            onSend={(text) => void sendChat(text)}
-            onClear={() => {
-              setMessages([welcomeMessageFor(language)]);
-              setSuggestedPrompt(null);
-              setAttachments([]);
-            }}
-            onCreateBrief={() => void createBrief()}
-            onDismissPipeline={() => setSuggestedPrompt(null)}
-          />
-          </div>
-          <div
-            className="rowResizer"
-            onPointerDown={onResizeStart}
-            onPointerMove={onResizeMove}
-            onPointerUp={onResizeEnd}
-            title={text.dragResize}
-          >
-            <span />
-          </div>
-          <StreamPanel items={streamItems} onClear={() => setStreamItems([])} language={language} />
-        </section>
+            <section className="centerColumn">
+              <div className="chatWrap" style={{ height: chatHeight }}>
+                <ChatPanel
+                  language={language}
+                  messages={messages}
+                  value={chatInput}
+                  selectedPlanner={selectedPlanner}
+                  selectedModel={selectedModel}
+                  modelOptions={modelOptions}
+                  selectedEffort={selectedEffort}
+                  onEffortChange={setSelectedEffort}
+                  selectedDetailLevel={selectedDetailLevel}
+                  onDetailLevelChange={setSelectedDetailLevel}
+                  participantOptions={verifiedTools.map((tool) => ({ id: tool.id as DebateParticipant, label: displayToolName(tool.id) }))}
+                  debateParticipants={debateParticipants}
+                  onToggleParticipant={(id) =>
+                    setDebateParticipants((current) =>
+                      current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
+                    )
+                  }
+                  debateRounds={debateRounds}
+                  onRoundsChange={setDebateRounds}
+                  mode={mode}
+                  onModeChange={setMode}
+                  multiAvailable={multiAvailable}
+                  cliOptions={cliOptions}
+                  singleCli={singleCli}
+                  onSingleCliChange={setSingleCli}
+                  thinking={isThinking}
+                  suggestedPrompt={suggestedPrompt}
+                  onModelChange={setSelectedModel}
+                  onChange={setChatInput}
+                  attachments={attachments}
+                  onAddImage={(file) => void addImage(file)}
+                  onRemoveImage={removeImage}
+                  conversations={conversations}
+                  activeConversationId={conversationId}
+                  onNewChat={newChat}
+                  onOpenConversation={openConversation}
+                  onDeleteConversation={deleteConversation}
+                  onSend={(text) => void sendChat(text)}
+                  onClear={() => {
+                    setMessages([welcomeMessageFor(language)]);
+                    setSuggestedPrompt(null);
+                    setAttachments([]);
+                  }}
+                  onCreateBrief={() => void createBrief()}
+                  onDismissPipeline={() => setSuggestedPrompt(null)}
+                />
+              </div>
+              <div
+                className="rowResizer"
+                onPointerDown={onResizeStart}
+                onPointerMove={onResizeMove}
+                onPointerUp={onResizeEnd}
+                title={text.dragResize}
+              >
+                <span />
+              </div>
+              <StreamPanel items={streamItems} onClear={() => setStreamItems([])} language={language} />
+            </section>
+          </>
+        ) : (
+          <>
+            <aside className="leftColumn">
+              <RolePanel agents={agentOptions} language={language} />
+              <RunPanel
+                runs={runs}
+                activeRun={activeRun}
+                onOpen={(run) => void openRun(run)}
+              />
+            </aside>
+
+            <section className="centerColumn">
+              <ActiveRunView
+                run={activeRun}
+                events={events}
+                language={language}
+              />
+            </section>
+          </>
+        )}
       </section>
 
       {briefOpen && (
@@ -1926,6 +1997,162 @@ function resetLabel(iso: string, language: Language) {
   const days = Math.floor(hours / 24);
   return `${days} ${text.dLater} ${hours % 24} ${text.hLater}`;
 }
+
+function ActiveRunView({
+  run,
+  events,
+  language
+}: {
+  run: Run | null;
+  events: RunEvent[];
+  language: Language;
+}) {
+  const text = uiText[language];
+  const [briefExpanded, setBriefExpanded] = useState(true);
+  const consoleEndRef = useRef<HTMLDivElement | null>(null);
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    if (run && run.status === "running") {
+      const interval = setInterval(() => setNow(Date.now()), 1000);
+      return () => clearInterval(interval);
+    }
+  }, [run?.status, run?.id]);
+
+  useEffect(() => {
+    consoleEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [events.length]);
+
+  if (!run) {
+    return (
+      <div className="codePlaceholder">
+        <Cpu size={48} />
+        <h3>{text.noActiveRunTitle}</h3>
+        <p>{text.noActiveRunDesc}</p>
+      </div>
+    );
+  }
+
+  const getDuration = () => {
+    if (!run.createdAt) return "";
+    const start = Date.parse(run.createdAt);
+    const end = run.completedAt ? Date.parse(run.completedAt) : now;
+    const diffSec = Math.max(0, Math.round((end - start) / 1000));
+    return `${diffSec} ${text.elapsedSeconds}`;
+  };
+
+  return (
+    <div className="activeRunContainer">
+      <header className="activeRunHeader">
+        <div className="activeRunMeta">
+          <h2>{text.runDetails}: {run.prompt.slice(0, 32)}{run.prompt.length > 32 ? "..." : ""}</h2>
+          <p>
+            <strong>{text.workspacePath}: </strong>
+            <code style={{ fontSize: "0.8rem", background: "rgba(0,0,0,0.2)", padding: "2px 6px", borderRadius: "4px" }}>
+              {run.workspacePath}
+            </code>
+          </p>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <div className="activeRunMeta" style={{ alignItems: "flex-end" }}>
+            <p style={{ margin: 0, fontSize: "0.75rem" }}>
+              {text.currentStep}: <strong style={{ color: "var(--text-primary)" }}>{run.activeStep || "starting"}</strong>
+            </p>
+            <p style={{ margin: 0, fontSize: "0.75rem" }}>
+              {text.duration}: <strong>{getDuration()}</strong>
+            </p>
+          </div>
+          <div className={`activeRunBadge ${run.status}`}>
+            <span />
+            {run.status}
+          </div>
+        </div>
+      </header>
+
+      <div className="briefAccordion">
+        <div className="briefAccordionHeader" onClick={() => setBriefExpanded(!briefExpanded)}>
+          <strong>{text.briefShartname}</strong>
+          {briefExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+        </div>
+        {briefExpanded && (
+          <div className="briefAccordionContent" style={{ whiteSpace: "pre-wrap" }}>
+            {run.prompt}
+          </div>
+        )}
+      </div>
+
+      <div className="terminalConsole">
+        <div className="terminalHeader">
+          <span>{text.terminalTitle}</span>
+          <span>SYSTEM ONLINE</span>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: "6px", flex: 1, overflowY: "auto" }}>
+          {events.map((event) => (
+            <CollapsibleTerminalLine key={event.id} event={event} />
+          ))}
+          <div ref={consoleEndRef} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const CollapsibleTerminalLine = ({ event }: { event: RunEvent }) => {
+  const [open, setOpen] = useState(false);
+  
+  const formatTime = (iso?: string) => {
+    if (!iso) return "";
+    try {
+      const date = new Date(iso);
+      return `[${date.toTimeString().split(" ")[0]}]`;
+    } catch {
+      return "";
+    }
+  };
+
+  const getBadgeClass = (agentId?: string | null) => {
+    if (!agentId) return "system";
+    const cleanId = agentId.toLowerCase();
+    if (cleanId.includes("claude")) return "claude";
+    if (cleanId.includes("codex")) return "codex";
+    if (cleanId.includes("gemini") || cleanId.includes("agy") || cleanId.includes("antigravity")) return "antigravity";
+    return "system";
+  };
+
+  const isStdoutOrStderr = event.type === "stdout" || event.type === "stderr";
+
+  if (!isStdoutOrStderr || !event.rawOutput) {
+    return (
+      <div className={`terminalLine ${event.type}`}>
+        <span className="time">{formatTime(event.createdAt)}</span>
+        <span className={`badge ${getBadgeClass(event.agentId)}`}>
+          {event.agentId || "system"}
+        </span>
+        <span>{event.message}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`terminalLine ${event.type} collapsible`} onClick={() => setOpen(!open)}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div>
+          <span className="time">{formatTime(event.createdAt)}</span>
+          <span className={`badge ${getBadgeClass(event.agentId)}`}>
+            {event.agentId || "system"}
+          </span>
+          <span>{event.message.slice(0, 90)}{event.message.length > 90 ? "..." : ""}</span>
+        </div>
+        {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+      </div>
+      {open && (
+        <pre className="terminalRawCode" onClick={(e) => e.stopPropagation()}>
+          <code>{event.rawOutput}</code>
+        </pre>
+      )}
+    </div>
+  );
+};
 
 function actionLabel(action: "login" | "logout" | "test", language: Language) {
   const text = uiText[language];

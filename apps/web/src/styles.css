@@ -1643,6 +1643,284 @@ textarea:focus {
   overflow-wrap: anywhere;
 }
 
+/* View Switcher (Sohbet / Kodlama) */
+.viewSwitcher {
+  display: inline-flex;
+  background: var(--button-bg);
+  border: var(--button-border);
+  border-radius: 999px;
+  padding: 3px;
+  gap: 4px;
+}
+
+.viewSwitcher button {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: 999px;
+  padding: 6px 18px;
+  font-size: 0.82rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+}
+
+.viewSwitcher button.active {
+  background: var(--button-active-bg);
+  color: var(--button-active-text);
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.25);
+}
+
+.viewSwitcher button:hover:not(.active) {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+/* Active Run Detail View & Terminal */
+.activeRunContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
+}
+
+.activeRunHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  background: var(--card-bg);
+  border: var(--card-border);
+  border-radius: 12px;
+}
+
+.activeRunMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.activeRunMeta h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 850;
+  color: var(--title-color);
+}
+
+.activeRunMeta p {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.activeRunBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 0.78rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.activeRunBadge.queued {
+  background: rgba(148, 163, 184, 0.1);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  color: var(--text-secondary);
+}
+
+.activeRunBadge.running {
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  color: var(--icon-color);
+}
+
+.activeRunBadge.completed {
+  background: var(--conn-online-bg);
+  border: var(--conn-online-border);
+  color: var(--conn-online-text);
+}
+
+.activeRunBadge.failed {
+  background: var(--conn-offline-bg);
+  border: var(--conn-offline-border);
+  color: var(--conn-offline-text);
+}
+
+/* Collapsible Brief Accordion */
+.briefAccordion {
+  background: var(--card-bg);
+  border: var(--card-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.briefAccordionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.03);
+  transition: background 0.2s ease;
+  user-select: none;
+}
+
+.briefAccordionHeader:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.briefAccordionHeader strong {
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  font-weight: 800;
+}
+
+.briefAccordionContent {
+  padding: 16px 18px;
+  border-top: 1px solid var(--border-soft);
+  max-height: 250px;
+  overflow-y: auto;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.briefAccordionContent p {
+  margin: 0 0 10px;
+}
+
+.briefAccordionContent ul {
+  margin: 0 0 10px;
+  padding-left: 20px;
+}
+
+.briefAccordionContent li {
+  margin-bottom: 4px;
+}
+
+/* Monospace Terminal */
+.terminalConsole {
+  background: #020409;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 12px;
+  font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+  padding: 16px;
+  height: 480px;
+  overflow-y: auto;
+  box-shadow: inset 0 4px 24px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.terminalHeader {
+  display: flex;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 8px;
+  margin-bottom: 6px;
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.terminalLine {
+  font-size: 0.84rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.terminalLine.started { color: #38bdf8; }
+.terminalLine.completed { color: #34d399; }
+.terminalLine.failed { color: #f87171; }
+.terminalLine.stdout { color: #e2e8f0; }
+.terminalLine.stderr { color: #f43f5e; }
+.terminalLine.fallback_used { color: #fbbf24; }
+.terminalLine.limit_detected { color: #f97316; }
+
+.terminalLine .time {
+  color: #475569;
+  margin-right: 8px;
+  user-select: none;
+}
+
+.terminalLine .badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  margin-right: 8px;
+  text-transform: uppercase;
+}
+
+.terminalLine .badge.claude { background: #d97706; color: #fff; }
+.terminalLine .badge.codex { background: #059669; color: #fff; }
+.terminalLine .badge.antigravity { background: #2563eb; color: #fff; }
+.terminalLine .badge.system { background: #475569; color: #fff; }
+
+.terminalLine.collapsible {
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  padding: 4px 8px;
+  transition: all 0.15s ease;
+}
+
+.terminalLine.collapsible:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.terminalRawCode {
+  margin: 6px 0 0;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 4px;
+  overflow-x: auto;
+  font-size: 0.78rem;
+  color: #cbd5e1;
+}
+
+/* Empty State Placeholder */
+.codePlaceholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 400px;
+  text-align: center;
+  background: var(--card-bg);
+  border: var(--card-border);
+  border-radius: 12px;
+  padding: 24px;
+  color: var(--text-secondary);
+}
+
+.codePlaceholder svg {
+  color: var(--icon-color);
+  margin-bottom: 16px;
+  opacity: 0.8;
+}
+
+.codePlaceholder h3 {
+  margin: 0 0 8px;
+  font-size: 1.2rem;
+  color: var(--title-color);
+}
+
+.codePlaceholder p {
+  margin: 0;
+  font-size: 0.85rem;
+  max-width: 420px;
+}
+
 @media (max-width: 1180px) {
   .workspace {
     grid-template-columns: 1fr;
