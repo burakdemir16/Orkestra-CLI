@@ -181,6 +181,38 @@ app.delete<{ Params: { id: string } }>("/api/agents/:id", async (request) => {
   return { ok: true };
 });
 
+app.post<{ Params: { id: string } }>("/api/agents/:id/activate", async (request, reply) => {
+  const agent = store.getAgent(request.params.id);
+  if (!agent) return reply.code(404).send({ error: "Agent not found" });
+
+  const allAgents = store.listAgents();
+  for (const a of allAgents) {
+    if (a.role === agent.role) {
+      const updated: Agent = {
+        ...a,
+        enabled: a.id === agent.id,
+        status: a.id === agent.id ? ("available" as const) : a.status
+      };
+      store.saveAgent(updated);
+    }
+  }
+  return { ok: true };
+});
+
+app.post("/api/agents/reset", async () => {
+  const defaults = ["codex-planner", "claude-builder", "gemini-reviewer", "codex-fixer"];
+  const allAgents = store.listAgents();
+  for (const a of allAgents) {
+    const updated: Agent = {
+      ...a,
+      enabled: defaults.includes(a.id),
+      status: "available" as const
+    };
+    store.saveAgent(updated);
+  }
+  return { ok: true };
+});
+
 app.get("/api/runs", async () => store.listRuns());
 
 app.get<{ Params: { id: string } }>("/api/runs/:id", async (request, reply) => {

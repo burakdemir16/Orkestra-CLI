@@ -952,7 +952,7 @@ function App() {
                 onRefresh={() => void refresh()}
                 onAction={(tool, action) => void runCliAction(tool, action)}
               />
-              <RolePanel agents={agentOptions} language={language} />
+              <RolePanel agents={agents} onRefresh={() => void refresh()} language={language} />
             </aside>
 
             <section className="centerColumn">
@@ -1020,7 +1020,7 @@ function App() {
         ) : (
           <>
             <aside className="leftColumn">
-              <RolePanel agents={agentOptions} language={language} />
+              <RolePanel agents={agents} onRefresh={() => void refresh()} language={language} />
               <RunPanel
                 runs={runs}
                 activeRun={activeRun}
@@ -1151,22 +1151,35 @@ function AgentCenter({
   );
 }
 
-function RolePanel({ agents, language }: { agents: Agent[]; language: Language }) {
-  const roles: AgentRole[] = ["planner", "builder", "reviewer"];
-  const [assignments, setAssignments] = useState<Record<string, string>>({});
+function RolePanel({
+  agents,
+  onRefresh,
+  language
+}: {
+  agents: Agent[];
+  onRefresh: () => void;
+  language: Language;
+}) {
+  const roles: AgentRole[] = ["planner", "builder", "reviewer", "fixer"];
   const text = uiText[language];
 
-  useEffect(() => {
-    setAssignments((current) => {
-      const next = { ...current };
-      for (const role of roles) {
-        if (!next[role] || !agents.some((agent) => agent.id === next[role])) {
-          next[role] = agents.find((agent) => agent.role === role)?.id ?? agents[0]?.id ?? "";
-        }
-      }
-      return next;
-    });
-  }, [agents]);
+  const handleActivate = async (id: string) => {
+    try {
+      await api.post(`/api/agents/${id}/activate`);
+      onRefresh();
+    } catch (err) {
+      console.error("Agent activation failed:", err);
+    }
+  };
+
+  const handleReset = async () => {
+    try {
+      await api.post("/api/agents/reset");
+      onRefresh();
+    } catch (err) {
+      console.error("Agents reset failed:", err);
+    }
+  };
 
   return (
     <section className="glassPanel">
@@ -1174,22 +1187,30 @@ function RolePanel({ agents, language }: { agents: Agent[]; language: Language }
         <Settings2 size={17} />
         <span>{text.roles}</span>
       </div>
-      {roles.map((role) => (
-        <label className="roleSelect" key={role}>
-          <span>{roleLabel(role, language)}</span>
-          <select
-            value={assignments[role] ?? ""}
-            onChange={(event) => setAssignments((current) => ({ ...current, [role]: event.target.value }))}
-          >
-            {agents.map((agent) => (
-              <option key={agent.id} value={agent.id}>
-                {agent.name} - {roleLabel(agent.role, language)}
-              </option>
-            ))}
-          </select>
-        </label>
-      ))}
-      <button className="resetButton">
+      {roles.map((role) => {
+        const selectedId = agents.find((a) => a.role === role && a.enabled)?.id ?? "";
+        const roleAgents = agents.filter((a) => a.role === role);
+        return (
+          <label className="roleSelect" key={role}>
+            <span>{roleLabel(role, language)}</span>
+            <select
+              value={selectedId}
+              onChange={(event) => void handleActivate(event.target.value)}
+            >
+              {roleAgents.length === 0 ? (
+                <option value="">(Yok)</option>
+              ) : (
+                roleAgents.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.name} {agent.status === "limited" ? `(${text.limited})` : ""}
+                  </option>
+                ))
+              )}
+            </select>
+          </label>
+        );
+      })}
+      <button className="resetButton" onClick={() => void handleReset()}>
         <RotateCcw size={14} />
         {text.reset}
       </button>

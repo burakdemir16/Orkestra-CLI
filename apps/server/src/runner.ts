@@ -101,6 +101,16 @@ export class Runner {
       return this.runDryAgent(agent, run, transcript);
     }
 
+    const cleanEnv = { ...process.env };
+    if (agent.command === "claude") {
+      for (const key of Object.keys(cleanEnv)) {
+        const normalized = key.toUpperCase();
+        if (normalized.startsWith("ANTHROPIC_") || normalized.startsWith("CLAUDE_CODE_")) {
+          delete cleanEnv[key];
+        }
+      }
+    }
+
     return new Promise<string>((resolve, reject) => {
       const args = interpolateArgs(agent.argsTemplate, {
         prompt: buildAgentPrompt(run.prompt, agent, transcript),
@@ -110,7 +120,7 @@ export class Runner {
       });
       const child = spawnCommand(agent.command, args, {
         cwd: run.workspacePath,
-        env: process.env
+        env: cleanEnv
       });
 
       let output = "";
