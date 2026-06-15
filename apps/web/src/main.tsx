@@ -462,14 +462,6 @@ function App() {
             onAction={(tool, action) => void runCliAction(tool, action)}
           />
           <RolePanel agents={agentOptions} />
-          <ConversationsPanel
-            conversations={conversations}
-            activeId={conversationId}
-            onOpen={openConversation}
-            onDelete={deleteConversation}
-            onNew={newChat}
-          />
-          <RunPanel runs={runs} activeRun={activeRun} onOpen={(run) => void openRun(run)} />
         </aside>
 
         <section className="centerColumn">
