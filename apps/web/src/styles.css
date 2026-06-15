@@ -674,6 +674,130 @@ textarea:focus {
   cursor: not-allowed;
 }
 
+.composerArea {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.modeSwitch {
+  display: inline-flex;
+  align-self: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(15, 20, 38, 0.7);
+}
+
+.modeTab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 16px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 0.82rem;
+  font-weight: 700;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.modeTab:hover:not(:disabled) {
+  color: #e2e8f0;
+}
+
+.modeTab.on {
+  background: rgba(129, 140, 248, 0.2);
+  color: #e0e7ff;
+  box-shadow: inset 0 0 0 1px rgba(129, 140, 248, 0.4);
+}
+
+.modeTab.on.debate {
+  background: rgba(251, 191, 36, 0.18);
+  color: #fde68a;
+  box-shadow: inset 0 0 0 1px rgba(251, 191, 36, 0.45);
+}
+
+.modeTab:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.modeTip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 240px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: #0e1426;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.5);
+  color: #cbd5e1;
+  font-size: 0.74rem;
+  font-weight: 500;
+  line-height: 1.45;
+  text-align: left;
+  white-space: normal;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 30;
+}
+
+.modeTab:hover .modeTip {
+  opacity: 1;
+}
+
+.debateControls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.partChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.partChip {
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: transparent;
+  color: #94a3b8;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.partChip.on {
+  border-color: rgba(129, 140, 248, 0.6);
+  background: rgba(129, 140, 248, 0.18);
+  color: #c7d2fe;
+}
+
+.roundsPicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #94a3b8;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.roundsPicker select {
+  min-height: 30px;
+  padding: 2px 8px;
+  border-radius: 8px;
+}
+
 .composerBox {
   display: flex;
   flex-direction: column;

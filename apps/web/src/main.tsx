@@ -19,7 +19,9 @@ import {
   RotateCcw,
   Search,
   Send,
+  Swords,
   Trash2,
+  Users,
   X,
   Settings2,
   Sparkles,
@@ -41,7 +43,24 @@ import type {
 } from "../../../packages/shared/types";
 import "./styles.css";
 
-type PlannerChoice = "auto" | "all" | "codex" | "claude" | "antigravity";
+type PlannerChoice = "auto" | "all" | "debate" | "codex" | "claude" | "antigravity";
+type DebateParticipant = "claude" | "codex" | "antigravity";
+type ChatMode = "single" | "multi" | "debate";
+
+const modeMeta: Record<ChatMode, { label: string; desc: string }> = {
+  single: {
+    label: "Tek Ajan",
+    desc: "Sadece seçtiğin CLI yanıtlar. En hızlı ve ekonomik mod; günlük sohbet, basit sorular ve küçük düzeltmeler için."
+  },
+  multi: {
+    label: "Çoklu Ajan",
+    desc: "Aynı mesaj tüm doğrulanmış CLI'lara gider; her biri bağımsız yanıtlar ve birbirinin mesajlarını görür. Maliyet ≈ CLI sayısı kadar."
+  },
+  debate: {
+    label: "Tartışma",
+    desc: "Seçtiğin ajanlar sırayla birbirine cevap vererek tartışır, sonunda Orkestra karar özeti çıkarır. Büyük kararlar / mimari için. ⚠️ Yüksek token maliyeti (5–10 kat+)."
+  }
+};
 type StreamItem = {
   id: string;
   source: string;
@@ -52,11 +71,13 @@ type StreamItem = {
 
 const plannerLabels: Record<PlannerChoice, string> = {
   auto: "Otomatik",
-  all: "Tüm CLI'lar",
+  all: "Tüm CLI'lar (Paralel)",
+  debate: "Tartışma (Kurul)",
   codex: "OpenAI Codex",
   claude: "Claude Code",
   antigravity: "Gemini CLI"
 };
+
 
 const api = {
   async get<T>(url: string): Promise<T> {
@@ -123,12 +144,15 @@ function App() {
   const [conversations, setConversations] = useState<StoredConversation[]>([]);
   const [conversationId, setConversationId] = useState<string>(() => crypto.randomUUID());
   const [selectedEffort, setSelectedEffort] = useState<"low" | "medium" | "high">("low");
+  const [debateParticipants, setDebateParticipants] = useState<DebateParticipant[]>([]);
+  const [debateRounds, setDebateRounds] = useState(1);
   const [chatHeight, setChatHeight] = useState<number>(() => {
     const saved = Number(localStorage.getItem("orkestra.chatHeight"));
     return Number.isFinite(saved) && saved >= 280 ? saved : 600;
   });
   const resizeRef = useRef<{ startY: number; startH: number } | null>(null);
-  const [selectedPlanner, setSelectedPlanner] = useState<PlannerChoice>("codex");
+  const [mode, setMode] = useState<ChatMode>("single");
+  const [singleCli, setSingleCli] = useState<DebateParticipant>("codex");
   const [selectedModel, setSelectedModel] = useState("default");
   const [streamItems, setStreamItems] = useState<StreamItem[]>([]);
   const [suggestedPrompt, setSuggestedPrompt] = useState<string | null>(null);
@@ -143,17 +167,41 @@ function App() {
     () => cliStatus?.tools.filter((tool) => tool.authenticated && tool.quotaOk) ?? [],
     [cliStatus]
   );
-  const plannerOptions = useMemo(() => {
-    const options = verifiedTools.map((tool) => tool.id as PlannerChoice);
-    if (verifiedTools.length > 1) options.push("all");
-    return options;
+  // Tek ajan modunda seçilebilecek doğrulanmış CLI'lar.
+  const cliOptions = useMemo(
+    () => verifiedTools.map((tool) => tool.id as DebateParticipant),
+    [verifiedTools]
+  );
+  const multiAvailable = verifiedTools.length > 1;
+
+  // Gönderilecek planner moddan türetilir.
+  const selectedPlanner: PlannerChoice = mode === "multi" ? "all" : mode === "debate" ? "debate" : singleCli;
+
+  // Tartışma katılımcıları varsayılan olarak tüm doğrulanmış CLI'lar.
+  useEffect(() => {
+    setDebateParticipants((current) => {
+      const valid = verifiedTools.map((tool) => tool.id as DebateParticipant);
+      const next = current.filter((id) => valid.includes(id));
+      return next.length ? next : valid;
+    });
   }, [verifiedTools]);
+
+  // Seçili tek-ajan CLI'ı doğrulanmış değilse ilk geçerliye dön.
+  useEffect(() => {
+    if (cliOptions.length && !cliOptions.includes(singleCli)) setSingleCli(cliOptions[0]);
+  }, [cliOptions, singleCli]);
+
+  // Çoklu/Tartışma için en az iki CLI yoksa tek ajana dön.
+  useEffect(() => {
+    if (mode !== "single" && !multiAvailable) setMode("single");
+  }, [mode, multiAvailable]);
+
   const selectedTool = useMemo(
-    () => cliStatus?.tools.find((tool) => tool.id === selectedPlanner),
-    [cliStatus, selectedPlanner]
+    () => cliStatus?.tools.find((tool) => tool.id === singleCli),
+    [cliStatus, singleCli]
   );
   const modelOptions: ModelOption[] =
-    selectedPlanner === "auto" || selectedPlanner === "all"
+    mode !== "single"
       ? [{ id: "default", label: "default", limited: false }]
       : selectedTool?.modelOptions?.length
         ? selectedTool.modelOptions
@@ -161,20 +209,13 @@ function App() {
 
   useEffect(() => {
     setSelectedModel("default");
-  }, [selectedPlanner]);
+  }, [singleCli, mode]);
 
   // Secili model limitliyse veya listede yoksa default'a don.
   useEffect(() => {
     const current = modelOptions.find((m) => m.id === selectedModel);
     if (!current || current.limited) setSelectedModel("default");
   }, [modelOptions, selectedModel]);
-
-  useEffect(() => {
-    if (!plannerOptions.length) return;
-    if (!plannerOptions.includes(selectedPlanner)) {
-      setSelectedPlanner(plannerOptions[0]);
-    }
-  }, [plannerOptions, selectedPlanner]);
 
   async function refresh() {
     const [nextAgents, nextRuns, nextGit, nextCli] = await Promise.all([
@@ -300,6 +341,82 @@ function App() {
     setAttachments((current) => current.filter((item) => item.path !== path));
   }
 
+  function appendDebateEvent(ev: {
+    type: string;
+    planner?: string;
+    modelLabel?: string;
+    content?: string;
+    message?: string;
+  }) {
+    if (ev.type === "message" || ev.type === "summary") {
+      const isSummary = ev.type === "summary";
+      const msg: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        planner: isSummary ? "system" : ev.planner,
+        modelLabel: isSummary ? "Orkestra · Karar Özeti" : ev.modelLabel,
+        content: ev.content ?? "",
+        createdAt: new Date().toISOString()
+      };
+      setMessages((current) => [...current, msg]);
+      setStreamItems((current) => [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          source: msg.modelLabel ?? "?",
+          type: isSummary ? "summary" : "assistant",
+          message: msg.content,
+          createdAt: msg.createdAt ?? new Date().toISOString()
+        }
+      ]);
+    } else if (ev.type === "error") {
+      setNotice(`${ev.modelLabel ?? "Sistem"}: ${ev.message ?? ""}`);
+      setStreamItems((current) => [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          source: ev.modelLabel ?? "Sistem",
+          type: "hata",
+          message: ev.message ?? "",
+          createdAt: new Date().toISOString()
+        }
+      ]);
+    }
+  }
+
+  async function streamDebate(message: string, history: ChatMessage[]) {
+    const res = await fetch("/api/debate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        message,
+        history,
+        participants: debateParticipants,
+        rounds: debateRounds,
+        effort: selectedEffort
+      })
+    });
+    if (!res.ok || !res.body) throw new Error(await res.text().catch(() => "Tartışma başlatılamadı."));
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          appendDebateEvent(JSON.parse(line));
+        } catch {
+          // Yarim/gecersiz satiri atla.
+        }
+      }
+    }
+  }
+
   async function sendChat(overrideText?: string) {
     const content = (overrideText ?? chatInput).trim();
     const pending = attachments;
@@ -334,6 +451,10 @@ function App() {
     setIsThinking(true);
 
     try {
+      if (selectedPlanner === "debate") {
+        await streamDebate(messageToSend, nextHistory);
+        return;
+      }
       const response = await api.post<ChatResponse>("/api/chat", {
         message: messageToSend,
         history: nextHistory,
@@ -474,10 +595,23 @@ function App() {
             modelOptions={modelOptions}
             selectedEffort={selectedEffort}
             onEffortChange={setSelectedEffort}
-            plannerOptions={plannerOptions}
+            participantOptions={verifiedTools.map((tool) => ({ id: tool.id as DebateParticipant, label: displayToolName(tool.id) }))}
+            debateParticipants={debateParticipants}
+            onToggleParticipant={(id) =>
+              setDebateParticipants((current) =>
+                current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
+              )
+            }
+            debateRounds={debateRounds}
+            onRoundsChange={setDebateRounds}
+            mode={mode}
+            onModeChange={setMode}
+            multiAvailable={multiAvailable}
+            cliOptions={cliOptions}
+            singleCli={singleCli}
+            onSingleCliChange={setSingleCli}
             thinking={isThinking}
             suggestedPrompt={suggestedPrompt}
-            onPlannerChange={setSelectedPlanner}
             onModelChange={setSelectedModel}
             onChange={setChatInput}
             attachments={attachments}
@@ -665,10 +799,19 @@ function ChatPanel({
   modelOptions,
   selectedEffort,
   onEffortChange,
-  plannerOptions,
+  participantOptions,
+  debateParticipants,
+  onToggleParticipant,
+  debateRounds,
+  onRoundsChange,
+  mode,
+  onModeChange,
+  multiAvailable,
+  cliOptions,
+  singleCli,
+  onSingleCliChange,
   thinking,
   suggestedPrompt,
-  onPlannerChange,
   onModelChange,
   onChange,
   attachments,
@@ -691,10 +834,19 @@ function ChatPanel({
   modelOptions: ModelOption[];
   selectedEffort: "low" | "medium" | "high";
   onEffortChange: (effort: "low" | "medium" | "high") => void;
-  plannerOptions: PlannerChoice[];
+  participantOptions: { id: DebateParticipant; label: string }[];
+  debateParticipants: DebateParticipant[];
+  onToggleParticipant: (id: DebateParticipant) => void;
+  debateRounds: number;
+  onRoundsChange: (rounds: number) => void;
+  mode: ChatMode;
+  onModeChange: (mode: ChatMode) => void;
+  multiAvailable: boolean;
+  cliOptions: DebateParticipant[];
+  singleCli: DebateParticipant;
+  onSingleCliChange: (id: DebateParticipant) => void;
   thinking: boolean;
   suggestedPrompt: string | null;
-  onPlannerChange: (planner: PlannerChoice) => void;
   onModelChange: (model: string) => void;
   onChange: (value: string) => void;
   attachments: { path: string; name: string; preview: string }[];
@@ -867,6 +1019,50 @@ function ChatPanel({
         <div ref={bottomRef} />
       </div>
 
+      <div className="composerArea">
+        <div className="modeSwitch">
+          {(["single", "multi", "debate"] as ChatMode[]).map((item) => {
+            const disabled = item !== "single" && !multiAvailable;
+            return (
+              <button
+                key={item}
+                className={`modeTab${mode === item ? " on" : ""}${item === "debate" ? " debate" : ""}`}
+                disabled={disabled}
+                onClick={() => onModeChange(item)}
+              >
+                {item === "single" && <Bot size={15} />}
+                {item === "multi" && <Users size={15} />}
+                {item === "debate" && <Swords size={15} />}
+                {modeMeta[item].label} Modu
+                <span className="modeTip">{disabled ? "En az iki doğrulanmış CLI gerekli." : modeMeta[item].desc}</span>
+              </button>
+            );
+          })}
+        </div>
+        {mode === "debate" && (
+          <div className="debateControls">
+            <div className="partChips">
+              {participantOptions.map((option) => (
+                <button
+                  key={option.id}
+                  className={`partChip${debateParticipants.includes(option.id) ? " on" : ""}`}
+                  onClick={() => onToggleParticipant(option.id)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <label className="roundsPicker">
+              Tur
+              <select value={debateRounds} onChange={(event) => onRoundsChange(Number(event.target.value))}>
+                <option value={1}>1</option>
+                <option value={2}>2</option>
+                <option value={3}>3</option>
+              </select>
+            </label>
+          </div>
+        )}
+
       <div className={`composerBox${listening ? " recording" : ""}`}>
         {attachments.length > 0 && (
           <div className="attachmentRow">
@@ -937,20 +1133,23 @@ function ChatPanel({
                 <button className="iconRound" onClick={() => fileInputRef.current?.click()} title="Görsel ekle">
                   <Plus size={18} />
                 </button>
-                <select
-                  className="pill"
-                  value={plannerOptions.includes(selectedPlanner) ? selectedPlanner : ""}
-                  disabled={!plannerOptions.length}
-                  title="Hedef CLI"
-                  onChange={(event) => onPlannerChange(event.target.value as PlannerChoice)}
-                >
-                  {!plannerOptions.length && <option value="">CLI yok</option>}
-                  {plannerOptions.map((planner) => (
-                    <option key={planner} value={planner}>
-                      {plannerLabels[planner]}
-                    </option>
-                  ))}
-                </select>
+                {mode === "single" && (
+                  <select
+                    className="pill"
+                    value={cliOptions.includes(singleCli) ? singleCli : ""}
+                    disabled={!cliOptions.length}
+                    title="Hangi CLI"
+                    onChange={(event) => onSingleCliChange(event.target.value as DebateParticipant)}
+                  >
+                    {!cliOptions.length && <option value="">CLI yok</option>}
+                    {cliOptions.map((id) => (
+                      <option key={id} value={id}>
+                        {plannerLabels[id]}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {mode === "single" && (
                 <select
                   className="pill"
                   value={selectedModel}
@@ -964,7 +1163,8 @@ function ChatPanel({
                     </option>
                   ))}
                 </select>
-                {(selectedPlanner === "claude" || selectedPlanner === "codex") && (
+                )}
+                {mode === "single" && (selectedPlanner === "claude" || selectedPlanner === "codex") && (
                   <select
                     className="pill"
                     value={selectedEffort}
@@ -985,7 +1185,7 @@ function ChatPanel({
                 )}
                 <button
                   className="iconRound sendCircle"
-                  disabled={(!value.trim() && !attachments.length) || thinking || !plannerOptions.length}
+                  disabled={(!value.trim() && !attachments.length) || thinking || !cliOptions.length}
                   onClick={() => onSend()}
                   title="Gönder"
                 >
@@ -995,6 +1195,7 @@ function ChatPanel({
             </div>
           </>
         )}
+      </div>
       </div>
 
       {showHistory && (

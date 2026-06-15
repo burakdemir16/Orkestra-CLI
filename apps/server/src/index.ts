@@ -82,6 +82,46 @@ app.post<{ Body: ChatRequest }>("/api/chat", async (request, reply) => {
   };
 });
 
+// Kurul/Tartisma modu: ajanlar sirayla tartisir; her olay (mesaj/ozet) NDJSON
+// satiri olarak akar ki UI tartismayi canli izlesin.
+app.post<{
+  Body: {
+    message?: string;
+    history?: ChatMessage[];
+    participants?: Array<"claude" | "codex" | "antigravity">;
+    rounds?: number;
+    model?: string;
+    effort?: EffortLevel;
+  };
+}>("/api/debate", async (request, reply) => {
+  const message = request.body.message?.trim();
+  if (!message) return reply.code(400).send({ error: "Message is required" });
+
+  reply.hijack();
+  reply.raw.writeHead(200, {
+    "content-type": "application/x-ndjson",
+    "cache-control": "no-cache",
+    connection: "keep-alive"
+  });
+
+  try {
+    for await (const event of runDebate(
+      request.body.participants ?? [],
+      message,
+      request.body.history ?? [],
+      request.body.rounds ?? 1,
+      request.body.model,
+      request.body.effort
+    )) {
+      reply.raw.write(`${JSON.stringify(event)}\n`);
+    }
+  } catch (error) {
+    const messageText = error instanceof Error ? error.message : String(error);
+    reply.raw.write(`${JSON.stringify({ type: "error", modelLabel: "Sistem", message: messageText })}\n`);
+  }
+  reply.raw.end();
+});
+
 app.get("/api/cli-status", async () => ({
   tools: await getCliStatuses(),
   checkedAt: new Date().toISOString()
