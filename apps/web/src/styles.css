@@ -694,12 +694,216 @@ textarea:focus {
   50% { opacity: 0.55; }
 }
 
+.voiceBar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 8px 10px 8px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(129, 140, 248, 0.35);
+  background: linear-gradient(180deg, rgba(99, 102, 241, 0.12), rgba(15, 23, 42, 0.4));
+}
+
+.voiceClock {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 0.82rem;
+  color: #c7d2fe;
+  min-width: 34px;
+}
+
+.voiceWave {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
+  height: 24px;
+}
+
+.voiceWave span {
+  width: 3px;
+  height: 30%;
+  border-radius: 999px;
+  background: #818cf8;
+  animation: voiceWave 0.9s ease-in-out infinite;
+}
+
+@keyframes voiceWave {
+  0%, 100% { height: 22%; opacity: 0.5; }
+  50% { height: 100%; opacity: 1; }
+}
+
+.voiceText {
+  flex: 1;
+  min-width: 0;
+  color: #cbd5e1;
+  font-size: 0.86rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.voiceBar .iconButton {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+}
+
+.voiceCancel {
+  color: #94a3b8;
+}
+
+.voiceConfirm {
+  color: #fff;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  border-color: transparent;
+}
+
+.chatTools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ghostButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 11px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(148, 163, 184, 0.06);
+  color: #cbd5e1;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.ghostButton:hover {
+  background: rgba(129, 140, 248, 0.14);
+  border-color: rgba(129, 140, 248, 0.4);
+}
+
+.historyWrap {
+  position: relative;
+}
+
+.historyPopover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  width: 260px;
+  max-height: 320px;
+  overflow-y: auto;
+  display: grid;
+  gap: 2px;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: #0f172a;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+}
+
+.historyItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #cbd5e1;
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.historyItem span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.historyItem:hover {
+  background: rgba(129, 140, 248, 0.16);
+}
+
+.historyEmpty {
+  color: #64748b;
+  font-size: 0.76rem;
+  padding: 8px 10px;
+}
+
+.conversationList {
+  display: grid;
+  gap: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.conversationItem {
+  display: flex;
+  align-items: center;
+  border-radius: 9px;
+  border: 1px solid transparent;
+}
+
+.conversationItem.active {
+  background: rgba(129, 140, 248, 0.12);
+  border-color: rgba(129, 140, 248, 0.35);
+}
+
+.conversationItem:hover {
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.conversationOpen {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  color: #cbd5e1;
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.conversationOpen span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversationDelete {
+  display: inline-flex;
+  padding: 8px;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.conversationDelete:hover {
+  color: #f87171;
+}
+
 .composerControls {
   grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 220px));
+  display: flex;
+  flex-wrap: wrap;
   gap: 10px;
-  justify-content: end;
+  justify-content: flex-end;
+}
+
+.composerControls label {
+  flex: 0 1 180px;
 }
 
 .composerControls label {

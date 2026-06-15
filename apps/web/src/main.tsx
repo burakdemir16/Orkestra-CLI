@@ -6,15 +6,18 @@ import {
   Circle,
   Diamond,
   GitBranch,
+  History,
   ImagePlus,
   LogIn,
   LogOut,
   MessageCircle,
   Mic,
   Play,
+  Plus,
   RefreshCw,
   RotateCcw,
   Send,
+  Trash2,
   X,
   Settings2,
   Sparkles,
@@ -80,6 +83,33 @@ const welcomeMessage: ChatMessage = {
   createdAt: new Date().toISOString()
 };
 
+type StoredConversation = { id: string; title: string; messages: ChatMessage[]; updatedAt: string };
+const CONVERSATIONS_KEY = "orkestra.conversations";
+
+function loadConversations(): StoredConversation[] {
+  try {
+    const raw = localStorage.getItem(CONVERSATIONS_KEY);
+    const parsed = raw ? (JSON.parse(raw) as StoredConversation[]) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveConversations(items: StoredConversation[]) {
+  try {
+    localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(items.slice(0, 50)));
+  } catch {
+    // localStorage dolu/erisilemez olabilir; sessiz gec.
+  }
+}
+
+function deriveTitle(messages: ChatMessage[]) {
+  const firstUser = messages.find((message) => message.role === "user");
+  const text = (firstUser?.content ?? "Yeni sohbet").replace(/\s+/g, " ").trim();
+  return text.length > 42 ? `${text.slice(0, 42)}…` : text || "Yeni sohbet";
+}
+
 function App() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
@@ -88,6 +118,9 @@ function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([welcomeMessage]);
   const [chatInput, setChatInput] = useState("");
   const [attachments, setAttachments] = useState<{ path: string; name: string; preview: string }[]>([]);
+  const [conversations, setConversations] = useState<StoredConversation[]>([]);
+  const [conversationId, setConversationId] = useState<string>(() => crypto.randomUUID());
+  const [selectedEffort, setSelectedEffort] = useState<"low" | "medium" | "high">("low");
   const [selectedPlanner, setSelectedPlanner] = useState<PlannerChoice>("codex");
   const [selectedModel, setSelectedModel] = useState("default");
   const [streamItems, setStreamItems] = useState<StreamItem[]>([]);
@@ -151,7 +184,50 @@ function App() {
 
   useEffect(() => {
     void refresh();
+    setConversations(loadConversations());
   }, []);
+
+  // Aktif sohbeti (en az bir kullanıcı mesajı varsa) localStorage'a kaydet.
+  useEffect(() => {
+    if (!messages.some((message) => message.role === "user")) return;
+    const convo: StoredConversation = {
+      id: conversationId,
+      title: deriveTitle(messages),
+      messages,
+      updatedAt: new Date().toISOString()
+    };
+    setConversations((current) => {
+      const next = [convo, ...current.filter((item) => item.id !== conversationId)];
+      saveConversations(next);
+      return next;
+    });
+  }, [messages, conversationId]);
+
+  function newChat() {
+    setMessages([welcomeMessage]);
+    setSuggestedPrompt(null);
+    setAttachments([]);
+    setNotice(null);
+    setConversationId(crypto.randomUUID());
+  }
+
+  function openConversation(id: string) {
+    const convo = conversations.find((item) => item.id === id);
+    if (!convo) return;
+    setMessages(convo.messages.length ? convo.messages : [welcomeMessage]);
+    setConversationId(id);
+    setSuggestedPrompt(null);
+    setAttachments([]);
+  }
+
+  function deleteConversation(id: string) {
+    setConversations((current) => {
+      const next = current.filter((item) => item.id !== id);
+      saveConversations(next);
+      return next;
+    });
+    if (id === conversationId) newChat();
+  }
 
   useEffect(() => {
     if (!activeRun) return;
@@ -237,6 +313,7 @@ function App() {
         history: nextHistory,
         planner: selectedPlanner,
         model: selectedModel,
+        effort: selectedPlanner === "claude" || selectedPlanner === "codex" ? selectedEffort : undefined,
         attachments: pending.map((item) => item.path)
       });
       const responseMessages = response.messages?.length ? response.messages : [response.message];
@@ -359,6 +436,13 @@ function App() {
             onAction={(tool, action) => void runCliAction(tool, action)}
           />
           <RolePanel agents={agentOptions} />
+          <ConversationsPanel
+            conversations={conversations}
+            activeId={conversationId}
+            onOpen={openConversation}
+            onDelete={deleteConversation}
+            onNew={newChat}
+          />
           <RunPanel runs={runs} activeRun={activeRun} onOpen={(run) => void openRun(run)} />
         </aside>
 
@@ -369,6 +453,8 @@ function App() {
             selectedPlanner={selectedPlanner}
             selectedModel={selectedModel}
             modelOptions={modelOptions}
+            selectedEffort={selectedEffort}
+            onEffortChange={setSelectedEffort}
             plannerOptions={plannerOptions}
             thinking={isThinking}
             suggestedPrompt={suggestedPrompt}
@@ -378,6 +464,9 @@ function App() {
             attachments={attachments}
             onAddImage={(file) => void addImage(file)}
             onRemoveImage={removeImage}
+            conversations={conversations}
+            onNewChat={newChat}
+            onOpenConversation={openConversation}
             onSend={(text) => void sendChat(text)}
             onClear={() => {
               setMessages([welcomeMessage]);
@@ -543,6 +632,8 @@ function ChatPanel({
   selectedPlanner,
   selectedModel,
   modelOptions,
+  selectedEffort,
+  onEffortChange,
   plannerOptions,
   thinking,
   suggestedPrompt,
@@ -552,6 +643,9 @@ function ChatPanel({
   attachments,
   onAddImage,
   onRemoveImage,
+  conversations,
+  onNewChat,
+  onOpenConversation,
   onSend,
   onClear,
   onStartPipeline,
@@ -562,6 +656,8 @@ function ChatPanel({
   selectedPlanner: PlannerChoice;
   selectedModel: string;
   modelOptions: ModelOption[];
+  selectedEffort: "low" | "medium" | "high";
+  onEffortChange: (effort: "low" | "medium" | "high") => void;
   plannerOptions: PlannerChoice[];
   thinking: boolean;
   suggestedPrompt: string | null;
@@ -571,12 +667,16 @@ function ChatPanel({
   attachments: { path: string; name: string; preview: string }[];
   onAddImage: (file: File) => void;
   onRemoveImage: (path: string) => void;
+  conversations: StoredConversation[];
+  onNewChat: () => void;
+  onOpenConversation: (id: string) => void;
   onSend: (text?: string) => void;
   onClear: () => void;
   onStartPipeline: (prompt: string) => void;
   onDismissPipeline: () => void;
 }) {
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [listening, setListening] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState("");
@@ -650,6 +750,34 @@ function ChatPanel({
           <strong>{plannerLabels[selectedPlanner]}</strong>
         </div>
         <div className="chatTools">
+          <button className="ghostButton" onClick={onNewChat} title="Yeni sohbet">
+            <Plus size={15} />
+            Yeni
+          </button>
+          <div className="historyWrap">
+            <button className="ghostButton" onClick={() => setShowHistory((open) => !open)} title="Geçmiş sohbetler">
+              <History size={15} />
+              Geçmiş
+            </button>
+            {showHistory && (
+              <div className="historyPopover" onMouseLeave={() => setShowHistory(false)}>
+                {conversations.length === 0 && <span className="historyEmpty">Henüz sohbet yok</span>}
+                {conversations.map((convo) => (
+                  <button
+                    key={convo.id}
+                    className="historyItem"
+                    onClick={() => {
+                      onOpenConversation(convo.id);
+                      setShowHistory(false);
+                    }}
+                  >
+                    <MessageCircle size={13} />
+                    <span>{convo.title}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <button onClick={onClear}>Temizle</button>
         </div>
       </div>
@@ -712,27 +840,6 @@ function ChatPanel({
             ))}
           </div>
         )}
-        <textarea
-          value={value}
-          placeholder="Mesaj yazın... (Ctrl+Enter gönder)"
-          onChange={(event) => onChange(event.target.value)}
-          onPaste={(event) => {
-            const images = Array.from(event.clipboardData.items)
-              .filter((item) => item.type.startsWith("image/"))
-              .map((item) => item.getAsFile())
-              .filter((file): file is File => Boolean(file));
-            if (images.length) {
-              event.preventDefault();
-              images.forEach((file) => onAddImage(file));
-            }
-          }}
-          onKeyDown={(event) => {
-            if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-              event.preventDefault();
-              onSend();
-            }
-          }}
-        />
         <input
           ref={fileInputRef}
           type="file"
@@ -744,24 +851,61 @@ function ChatPanel({
             event.target.value = "";
           }}
         />
-        <div className="composerButtons">
-          <button className="iconButton" onClick={() => fileInputRef.current?.click()} title="Görsel ekle">
-            <ImagePlus size={18} />
-          </button>
-          {voiceSupported && (
-            <button
-              className={`iconButton${listening ? " recording" : ""}`}
-              onClick={toggleVoice}
-              title={listening ? "Dinlemeyi durdur" : "Sesle yaz"}
-            >
-              <Mic size={18} />
+        {listening ? (
+          <div className="voiceBar">
+            <span className="voiceClock">{recordClock}</span>
+            <div className="voiceWave">
+              {Array.from({ length: 28 }).map((_, index) => (
+                <span key={index} style={{ animationDelay: `${(index % 7) * 0.09}s` }} />
+              ))}
+            </div>
+            <span className="voiceText">{liveTranscript || "Dinleniyor..."}</span>
+            <button className="iconButton voiceCancel" onClick={() => stopVoice(false)} title="İptal">
+              <X size={16} />
             </button>
-          )}
-          <button className="primary" disabled={(!value.trim() && !attachments.length) || thinking || !plannerOptions.length} onClick={onSend}>
-            <Send size={16} />
-            Gönder
-          </button>
-        </div>
+            <button className="iconButton voiceConfirm" onClick={() => stopVoice(true)} title="Gönder">
+              <Send size={16} />
+            </button>
+          </div>
+        ) : (
+          <>
+            <textarea
+              value={value}
+              placeholder="Mesaj yazın... (Ctrl+Enter gönder, Ctrl+V ile görsel yapıştır)"
+              onChange={(event) => onChange(event.target.value)}
+              onPaste={(event) => {
+                const images = Array.from(event.clipboardData.items)
+                  .filter((item) => item.type.startsWith("image/"))
+                  .map((item) => item.getAsFile())
+                  .filter((file): file is File => Boolean(file));
+                if (images.length) {
+                  event.preventDefault();
+                  images.forEach((file) => onAddImage(file));
+                }
+              }}
+              onKeyDown={(event) => {
+                if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                  event.preventDefault();
+                  onSend();
+                }
+              }}
+            />
+            <div className="composerButtons">
+              <button className="iconButton" onClick={() => fileInputRef.current?.click()} title="Görsel ekle">
+                <ImagePlus size={18} />
+              </button>
+              {voiceSupported && (
+                <button className="iconButton" onClick={startVoice} title="Sesle yaz">
+                  <Mic size={18} />
+                </button>
+              )}
+              <button className="primary" disabled={(!value.trim() && !attachments.length) || thinking || !plannerOptions.length} onClick={() => onSend()}>
+                <Send size={16} />
+                Gönder
+              </button>
+            </div>
+          </>
+        )}
         <div className="composerControls">
           <label>
             Hedef
@@ -789,7 +933,59 @@ function ChatPanel({
               ))}
             </select>
           </label>
+          {(selectedPlanner === "claude" || selectedPlanner === "codex") && (
+            <label>
+              Efor
+              <select value={selectedEffort} onChange={(event) => onEffortChange(event.target.value as "low" | "medium" | "high")}>
+                <option value="low">Low (hızlı)</option>
+                <option value="medium">Medium</option>
+                <option value="high">High (kaliteli)</option>
+              </select>
+            </label>
+          )}
         </div>
+      </div>
+    </section>
+  );
+}
+
+function ConversationsPanel({
+  conversations,
+  activeId,
+  onOpen,
+  onDelete,
+  onNew
+}: {
+  conversations: StoredConversation[];
+  activeId: string;
+  onOpen: (id: string) => void;
+  onDelete: (id: string) => void;
+  onNew: () => void;
+}) {
+  return (
+    <section className="glassPanel">
+      <div className="panelTitle split">
+        <span>
+          <History size={17} />
+          Geçmiş Sohbetler
+        </span>
+        <button className="iconButton" onClick={onNew} title="Yeni sohbet">
+          <Plus size={15} />
+        </button>
+      </div>
+      <div className="conversationList">
+        {conversations.length === 0 && <small className="historyEmpty">Henüz kayıtlı sohbet yok.</small>}
+        {conversations.map((convo) => (
+          <div key={convo.id} className={`conversationItem${convo.id === activeId ? " active" : ""}`}>
+            <button className="conversationOpen" onClick={() => onOpen(convo.id)}>
+              <MessageCircle size={14} />
+              <span>{convo.title}</span>
+            </button>
+            <button className="conversationDelete" onClick={() => onDelete(convo.id)} title="Sil">
+              <Trash2 size={14} />
+            </button>
+          </div>
+        ))}
       </div>
     </section>
   );

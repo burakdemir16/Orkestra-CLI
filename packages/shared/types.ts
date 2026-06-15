@@ -87,11 +87,14 @@ export interface ChatMessage {
   modelLabel?: string;
 }
 
+export type EffortLevel = "low" | "medium" | "high";
+
 export interface ChatRequest {
   message: string;
   history: ChatMessage[];
   planner?: "claude" | "codex" | "antigravity" | "auto" | "all";
   model?: string;
+  effort?: EffortLevel;
   attachments?: string[]; // yuklenmis gorsel dosyalarinin mutlak yollari
 }
 

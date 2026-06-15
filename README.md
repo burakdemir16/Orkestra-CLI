@@ -1,6 +1,6 @@
 # 🎹 Orkestra
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-red.svg)](LICENSE)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D20.0.0-blue.svg)](https://nodejs.org/)
 [![Vite](https://img.shields.io/badge/Vite-v8.0-purple.svg)](https://vitejs.dev/)
 [![React](https://img.shields.io/badge/React-v19.0-blue.svg)](https://react.dev/)
@@ -124,4 +124,4 @@ It automates the following steps:
 
 ## 📝 License
 
-Distributed under the MIT License. See `LICENSE` for more information.
+Distributed under the PolyForm Noncommercial License 1.0.0. See `LICENSE` for more information.
