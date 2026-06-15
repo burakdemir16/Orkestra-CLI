@@ -48,21 +48,7 @@ type PlannerChoice = "auto" | "all" | "debate" | "codex" | "claude" | "antigravi
 type DebateParticipant = "claude" | "codex" | "antigravity";
 type ChatMode = "single" | "multi" | "debate";
 type Language = "en" | "tr";
-
-const modeMeta: Record<ChatMode, { label: string; desc: string }> = {
-  single: {
-    label: "Single Agent",
-    desc: "Only the selected CLI responds. Fastest and most economical mode for daily chat, simple questions, and small fixes."
-  },
-  multi: {
-    label: "Multi Agent",
-    desc: "The same message is sent to every verified CLI. Each responds independently and can see the shared history. Cost is roughly proportional to the number of CLIs."
-  },
-  debate: {
-    label: "Debate",
-    desc: "Selected agents answer each other in rounds, then Orkestra produces a decision summary. Best for major decisions and architecture. High token cost."
-  }
-};
+type UiText = typeof uiText.en;
 type StreamItem = {
   id: string;
   source: string;
@@ -71,14 +57,275 @@ type StreamItem = {
   createdAt: string;
 };
 
-const plannerLabels: Record<PlannerChoice, string> = {
-  auto: "Automatic",
-  all: "All CLIs (Parallel)",
-  debate: "Debate Board",
-  codex: "OpenAI Codex",
-  claude: "Claude Code",
-  antigravity: "Gemini CLI"
+const plannerLabelsByLanguage: Record<Language, Record<PlannerChoice, string>> = {
+  en: {
+    auto: "Automatic",
+    all: "All CLIs (Parallel)",
+    debate: "Debate Board",
+    codex: "OpenAI Codex",
+    claude: "Claude Code",
+    antigravity: "Gemini CLI"
+  },
+  tr: {
+    auto: "Otomatik",
+    all: "Tüm CLI'ler (Paralel)",
+    debate: "Tartışma Panosu",
+    codex: "OpenAI Codex",
+    claude: "Claude Code",
+    antigravity: "Gemini CLI"
+  }
 };
+
+const modeMetaByLanguage: Record<Language, Record<ChatMode, { label: string; desc: string }>> = {
+  en: {
+    single: {
+      label: "Single Agent",
+      desc: "Only the selected CLI responds. Fastest and most economical mode for daily chat, simple questions, and small fixes."
+    },
+    multi: {
+      label: "Multi Agent",
+      desc: "The same message is sent to every verified CLI. Each responds independently and can see the shared history. Cost is roughly proportional to the number of CLIs."
+    },
+    debate: {
+      label: "Debate",
+      desc: "Selected agents answer each other in rounds, then Orkestra produces a decision summary. Best for major decisions and architecture. High token cost."
+    }
+  },
+  tr: {
+    single: {
+      label: "Tek Ajan",
+      desc: "Yalnızca seçili CLI cevap verir. Günlük sohbet, basit sorular ve küçük düzeltmeler için en hızlı ve en ekonomik mod."
+    },
+    multi: {
+      label: "Çoklu Ajan",
+      desc: "Aynı mesaj doğrulanmış tüm CLI'lere gönderilir. Her biri bağımsız cevap verir ve ortak geçmişi görebilir. Maliyet CLI sayısıyla yaklaşık doğru orantılıdır."
+    },
+    debate: {
+      label: "Tartışma",
+      desc: "Seçili ajanlar turlar halinde birbirlerine cevap verir, ardından Orkestra karar özeti üretir. Büyük kararlar ve mimari için uygundur. Token maliyeti yüksektir."
+    }
+  }
+};
+
+const uiText = {
+  en: {
+    welcome: "Hello! I am the Orkestra Planner. You can ask me to plan a project, chat, or write code.",
+    connected: "Connected",
+    disconnected: "Disconnected",
+    switchDark: "Switch to dark theme",
+    switchLight: "Switch to light theme",
+    dragResize: "Drag to resize",
+    close: "Close",
+    generating: "Generating...",
+    generatedEditable: "generated - you can edit it",
+    generatingBrief: "Generating brief, please wait...",
+    briefPlaceholder: "The brief will appear here...",
+    regenerate: "Regenerate",
+    cancel: "Cancel",
+    approveBrief: "Approve and Send to Code",
+    agentCenter: "Agent Center",
+    refresh: "Refresh",
+    readingCli: "Reading CLI status...",
+    ready: "Ready",
+    waiting: "Waiting",
+    roles: "Roles",
+    reset: "Reset",
+    history: "History",
+    plannerChat: "Planner Chat",
+    newChat: "New chat",
+    new: "New",
+    chatHistory: "Chat history",
+    clearChat: "Clear chat",
+    clear: "Clear",
+    isThinking: "is thinking",
+    projectDetected: "Project detected",
+    projectDetectedCopy: "You can turn this chat into a structured Code Task Brief and move to the coding stage.",
+    createBrief: "Create Brief",
+    continueChat: "Continue chat",
+    mode: "Mode",
+    needsTwoCli: "At least two verified CLIs are required.",
+    rounds: "Rounds",
+    remove: "Remove",
+    listening: "Listening...",
+    send: "Send",
+    composerPlaceholder: "Ask something or assign a task... (Enter sends - Shift+Enter new line - Ctrl+V paste image)",
+    addImage: "Add image",
+    whichCli: "Which CLI",
+    noCli: "No CLI",
+    reasoningEffort: "Reasoning effort",
+    voiceInput: "Voice input",
+    searchChats: "Search chats...",
+    noMatchingChats: "No matching chats.",
+    current: "Current",
+    recentChats: "Recent chats",
+    upDownNavigate: "Up/down to navigate",
+    enterSelect: "Enter to select",
+    escClose: "Esc close",
+    delete: "Delete",
+    savedChatHistory: "Chat History",
+    noSavedChats: "No saved chats yet.",
+    all: "All",
+    logsWaiting: "Waiting for logs...",
+    previous: "Previous",
+    next: "Next",
+    page: "Page",
+    login: "Login",
+    logout: "Logout",
+    test: "Test",
+    local: "Local",
+    remote: "Remote",
+    model: "model",
+    limited: "limited",
+    notInstalled: "Not installed",
+    loginRequired: "Login required",
+    quotaIssue: "Quota issue",
+    responding: "Responding",
+    geminiVerified: "Gemini verified",
+    verified: "Verified",
+    resets: "resets",
+    staleUsage: "Warning: stale data - waiting for cligate update",
+    now: "now",
+    minLater: "min later",
+    hLater: "h",
+    dLater: "d",
+    justNow: "just now",
+    minAgo: "min ago",
+    hAgo: "h ago",
+    dAgo: "d ago",
+    wAgo: "w ago",
+    planner: "Planner",
+    builder: "Builder",
+    reviewer: "Reviewer",
+    fixer: "Fixer",
+    custom: "Custom",
+    imageUploadFailed: "Image upload failed",
+    decisionSummary: "Orkestra - Decision Summary",
+    debateCouldNotStart: "Debate could not be started.",
+    reviewAttachedImage: "Review the attached image.",
+    attachment: "Attachment",
+    user: "User",
+    fallbackUsed: "Fallback was used.",
+    plannerCouldNotRespond: "The planner could not respond",
+    briefCouldNotBeGenerated: "Brief could not be generated",
+    completed: "completed",
+    status: "Status",
+    system: "System"
+  },
+  tr: {
+    welcome: "Merhaba! Ben Orkestra Planlayıcısı. Proje planlamak, sohbet etmek veya kod yazmak için bana yazabilirsiniz.",
+    connected: "Bağlı",
+    disconnected: "Bağlı değil",
+    switchDark: "Koyu temaya geç",
+    switchLight: "Açık temaya geç",
+    dragResize: "Sürükleyerek yeniden boyutlandır",
+    close: "Kapat",
+    generating: "Üretiliyor...",
+    generatedEditable: "üretti - düzenleyebilirsin",
+    generatingBrief: "Brief üretiliyor, lütfen bekleyin...",
+    briefPlaceholder: "Brief burada görünecek...",
+    regenerate: "Yeniden üret",
+    cancel: "İptal",
+    approveBrief: "Onayla ve Code'a aktar",
+    agentCenter: "Ajan Merkezi",
+    refresh: "Yenile",
+    readingCli: "CLI durumu okunuyor...",
+    ready: "Hazır",
+    waiting: "Bekleniyor",
+    roles: "Roller",
+    reset: "Sıfırla",
+    history: "Geçmiş",
+    plannerChat: "Planlayıcı Sohbet",
+    newChat: "Yeni sohbet",
+    new: "Yeni",
+    chatHistory: "Sohbet geçmişi",
+    clearChat: "Sohbeti temizle",
+    clear: "Temizle",
+    isThinking: "düşünüyor",
+    projectDetected: "Proje algılandı",
+    projectDetectedCopy: "Bu sohbeti yapılandırılmış bir Code Task Brief'e dönüştürüp kod aşamasına geçebilirsin.",
+    createBrief: "Brief oluştur",
+    continueChat: "Sohbete devam et",
+    mode: "Mod",
+    needsTwoCli: "En az iki doğrulanmış CLI gerekli.",
+    rounds: "Turlar",
+    remove: "Kaldır",
+    listening: "Dinleniyor...",
+    send: "Gönder",
+    composerPlaceholder: "Bir şey sorun veya görev verin... (Enter gönderir - Shift+Enter yeni satır - Ctrl+V görsel yapıştır)",
+    addImage: "Görsel ekle",
+    whichCli: "Hangi CLI",
+    noCli: "CLI yok",
+    reasoningEffort: "Akıl yürütme seviyesi",
+    voiceInput: "Sesli giriş",
+    searchChats: "Sohbetlerde ara...",
+    noMatchingChats: "Eşleşen sohbet yok.",
+    current: "Şu anki",
+    recentChats: "Son sohbetler",
+    upDownNavigate: "Yukarı/aşağı gezin",
+    enterSelect: "Enter ile seç",
+    escClose: "Esc kapatır",
+    delete: "Sil",
+    savedChatHistory: "Geçmiş Sohbetler",
+    noSavedChats: "Henüz kayıtlı sohbet yok.",
+    all: "Tüm",
+    logsWaiting: "Log bekleniyor...",
+    previous: "Önceki",
+    next: "Sonraki",
+    page: "Sayfa",
+    login: "Giriş",
+    logout: "Çıkış",
+    test: "Test",
+    local: "Yerel",
+    remote: "Uzak",
+    model: "model",
+    limited: "limitli",
+    notInstalled: "Kurulu değil",
+    loginRequired: "Giriş gerekli",
+    quotaIssue: "Kota sorunu",
+    responding: "Yanıt veriyor",
+    geminiVerified: "Gemini doğrulandı",
+    verified: "Doğrulandı",
+    resets: "sıfırlanır",
+    staleUsage: "Veri eski - cligate güncellemesi bekleniyor",
+    now: "şimdi",
+    minLater: "dk sonra",
+    hLater: "sa",
+    dLater: "gün",
+    justNow: "az önce",
+    minAgo: "dk önce",
+    hAgo: "sa önce",
+    dAgo: "gün önce",
+    wAgo: "hafta önce",
+    planner: "Planlayıcı",
+    builder: "Kodlayıcı",
+    reviewer: "Denetçi",
+    fixer: "Düzeltici",
+    custom: "Özel",
+    imageUploadFailed: "Görsel yüklenemedi",
+    decisionSummary: "Orkestra - Karar Özeti",
+    debateCouldNotStart: "Tartışma başlatılamadı.",
+    reviewAttachedImage: "Ekli görseli incele.",
+    attachment: "Ek",
+    user: "Kullanıcı",
+    fallbackUsed: "Fallback kullanıldı.",
+    plannerCouldNotRespond: "Planlayıcı yanıt veremedi",
+    briefCouldNotBeGenerated: "Brief üretilemedi",
+    completed: "tamamlandı",
+    status: "Durum",
+    system: "Sistem"
+  }
+} as const;
+
+function welcomeMessageFor(language: Language): ChatMessage {
+  return {
+    id: "welcome",
+    role: "assistant",
+    planner: "system",
+    modelLabel: "Orkestra",
+    content: uiText[language].welcome,
+    createdAt: new Date().toISOString()
+  };
+}
 
 
 const api = {
@@ -96,16 +343,6 @@ const api = {
     if (!response.ok) throw new Error(await response.text());
     return response.json() as Promise<T>;
   }
-};
-
-const welcomeMessage: ChatMessage = {
-  id: "welcome",
-  role: "assistant",
-  planner: "system",
-  modelLabel: "Orkestra",
-  content:
-    "Hello! I am the Orkestra Planner. You can ask me to plan a project, chat, or write code.",
-  createdAt: new Date().toISOString()
 };
 
 type StoredConversation = { id: string; title: string; messages: ChatMessage[]; updatedAt: string };
@@ -155,12 +392,14 @@ function App() {
     document.documentElement.lang = language;
     localStorage.setItem("orkestra.language", language);
   }, [language]);
+  const text = uiText[language];
+  const plannerLabels = plannerLabelsByLanguage[language];
 
   const [agents, setAgents] = useState<Agent[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
   const [activeRun, setActiveRun] = useState<Run | null>(null);
   const [events, setEvents] = useState<RunEvent[]>([]);
-  const [messages, setMessages] = useState<ChatMessage[]>([welcomeMessage]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => [welcomeMessageFor(language)]);
   const [chatInput, setChatInput] = useState("");
   const [attachments, setAttachments] = useState<{ path: string; name: string; preview: string }[]>([]);
   const [conversations, setConversations] = useState<StoredConversation[]>([]);
@@ -261,6 +500,12 @@ function App() {
     setConversations(loadConversations());
   }, []);
 
+  useEffect(() => {
+    setMessages((current) =>
+      current.length === 1 && current[0]?.id === "welcome" ? [welcomeMessageFor(language)] : current
+    );
+  }, [language]);
+
   // Save the active chat to localStorage when it has at least one user message.
   useEffect(() => {
     if (!messages.some((message) => message.role === "user")) return;
@@ -278,7 +523,7 @@ function App() {
   }, [messages, conversationId]);
 
   function newChat() {
-    setMessages([welcomeMessage]);
+    setMessages([welcomeMessageFor(language)]);
     setSuggestedPrompt(null);
     setAttachments([]);
     setNotice(null);
@@ -288,7 +533,7 @@ function App() {
   function openConversation(id: string) {
     const convo = conversations.find((item) => item.id === id);
     if (!convo) return;
-    setMessages(convo.messages.length ? convo.messages : [welcomeMessage]);
+    setMessages(convo.messages.length ? convo.messages : [welcomeMessageFor(language)]);
     setConversationId(id);
     setSuggestedPrompt(null);
     setAttachments([]);
@@ -359,7 +604,7 @@ function App() {
       const res = await api.post<{ path: string; name: string }>("/api/upload", { name: file.name, dataUrl });
       setAttachments((current) => [...current, { path: res.path, name: res.name, preview: dataUrl }]);
     } catch (error) {
-      setNotice(`Image upload failed: ${error instanceof Error ? error.message : String(error)}`);
+      setNotice(`${text.imageUploadFailed}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -380,7 +625,7 @@ function App() {
         id: crypto.randomUUID(),
         role: "assistant",
         planner: isSummary ? "system" : ev.planner,
-        modelLabel: isSummary ? "Orkestra - Decision Summary" : ev.modelLabel,
+        modelLabel: isSummary ? text.decisionSummary : ev.modelLabel,
         content: ev.content ?? "",
         createdAt: new Date().toISOString()
       };
@@ -422,7 +667,7 @@ function App() {
         effort: selectedEffort
       })
     });
-    if (!res.ok || !res.body) throw new Error(await res.text().catch(() => "Debate could not be started."));
+    if (!res.ok || !res.body) throw new Error(await res.text().catch(() => text.debateCouldNotStart));
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
@@ -452,9 +697,9 @@ function App() {
     setChatInput("");
     setAttachments([]);
 
-    const messageToSend = content || "Review the attached image.";
+    const messageToSend = content || text.reviewAttachedImage;
     const displayContent = pending.length
-      ? `${content}${content ? "\n\n" : ""}Attachment: ${pending.map((item) => item.name).join(", ")}`
+      ? `${content}${content ? "\n\n" : ""}${text.attachment}: ${pending.map((item) => item.name).join(", ")}`
       : content;
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
@@ -468,7 +713,7 @@ function App() {
       ...current,
       {
         id: crypto.randomUUID(),
-        source: "User",
+        source: text.user,
         type: "chat",
         message: displayContent,
         createdAt: new Date().toISOString()
@@ -503,12 +748,12 @@ function App() {
       ]);
       if (response.action === "suggest_pipeline") setSuggestedPrompt(response.suggestedPrompt ?? content);
       if (response.error) {
-        setNotice(`Fallback was used. ${response.error}`);
+        setNotice(`${text.fallbackUsed} ${response.error}`);
         setStreamItems((current) => [
           ...current,
           {
             id: crypto.randomUUID(),
-            source: "System",
+            source: text.system,
             type: "error",
             message: response.error ?? "",
             createdAt: new Date().toISOString()
@@ -516,15 +761,15 @@ function App() {
         ]);
       }
     } catch (error) {
-      const text = error instanceof Error ? error.message : String(error);
+      const errorText = error instanceof Error ? error.message : String(error);
       setMessages((current) => [
         ...current,
         {
           id: crypto.randomUUID(),
           role: "assistant",
           planner: "system",
-          modelLabel: "System",
-          content: `The planner could not respond: ${text}`,
+          modelLabel: text.system,
+          content: `${text.plannerCouldNotRespond}: ${errorText}`,
           createdAt: new Date().toISOString()
         }
       ]);
@@ -532,9 +777,9 @@ function App() {
         ...current,
         {
           id: crypto.randomUUID(),
-          source: "System",
+          source: text.system,
           type: "error",
-          message: text,
+          message: errorText,
           createdAt: new Date().toISOString()
         }
       ]);
@@ -565,7 +810,7 @@ function App() {
       setBriefMeta(res.modelLabel);
     } catch (error) {
       setBriefText("");
-      setNotice(`Brief could not be generated: ${error instanceof Error ? error.message : String(error)}`);
+      setNotice(`${text.briefCouldNotBeGenerated}: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setBriefLoading(false);
     }
@@ -602,7 +847,7 @@ function App() {
         setNotice(String((result as { message: unknown }).message));
       } else {
         const updated = result as CliToolStatus;
-        setNotice(`${displayToolName(tool.id)}: ${actionLabel(action)} completed. Status: ${statusText(updated)}.`);
+        setNotice(`${displayToolName(tool.id)}: ${actionLabel(action, language)} ${text.completed}. ${text.status}: ${statusText(updated, language)}.`);
       }
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
@@ -621,7 +866,7 @@ function App() {
           <button
             className="iconButton themeToggle"
             onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
-            title={theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
+            title={theme === "light" ? text.switchDark : text.switchLight}
             style={{ width: "32px", height: "32px", padding: 0 }}
           >
             {theme === "light" ? <Moon size={16} /> : <Sun size={16} />}
@@ -632,7 +877,7 @@ function App() {
           </div>
           <div className={`connectionPill ${online ? "online" : "offline"}`}>
             <span />
-            {online ? "Connected" : "Disconnected"}
+            {online ? text.connected : text.disconnected}
           </div>
         </div>
       </header>
@@ -640,17 +885,19 @@ function App() {
       <section className="workspace">
         <aside className="leftColumn">
           <AgentCenter
+            language={language}
             status={cliStatus}
             gitStatus={gitStatus}
             onRefresh={() => void refresh()}
             onAction={(tool, action) => void runCliAction(tool, action)}
           />
-          <RolePanel agents={agentOptions} />
+          <RolePanel agents={agentOptions} language={language} />
         </aside>
 
         <section className="centerColumn">
           <div className="chatWrap" style={{ height: chatHeight }}>
           <ChatPanel
+            language={language}
             messages={messages}
             value={chatInput}
             selectedPlanner={selectedPlanner}
@@ -687,7 +934,7 @@ function App() {
             onDeleteConversation={deleteConversation}
             onSend={(text) => void sendChat(text)}
             onClear={() => {
-              setMessages([welcomeMessage]);
+              setMessages([welcomeMessageFor(language)]);
               setSuggestedPrompt(null);
               setAttachments([]);
             }}
@@ -700,11 +947,11 @@ function App() {
             onPointerDown={onResizeStart}
             onPointerMove={onResizeMove}
             onPointerUp={onResizeEnd}
-            title="Drag to resize"
+            title={text.dragResize}
           >
             <span />
           </div>
-          <StreamPanel items={streamItems} onClear={() => setStreamItems([])} />
+          <StreamPanel items={streamItems} onClear={() => setStreamItems([])} language={language} />
         </section>
       </section>
 
@@ -713,28 +960,28 @@ function App() {
           <div className="briefDialog" onMouseDown={(event) => event.stopPropagation()}>
             <div className="briefHead">
               <strong>Code Task Brief</strong>
-              <span className="briefMeta">{briefLoading ? "Generating..." : briefMeta ? `${briefMeta} generated - you can edit it` : ""}</span>
-              <button className="iconButton" onClick={() => setBriefOpen(false)} title="Close">
+              <span className="briefMeta">{briefLoading ? text.generating : briefMeta ? `${briefMeta} ${text.generatedEditable}` : ""}</span>
+              <button className="iconButton" onClick={() => setBriefOpen(false)} title={text.close}>
                 <X size={16} />
               </button>
             </div>
             <textarea
               className="briefText"
-              value={briefLoading ? "Generating brief, please wait..." : briefText}
+              value={briefLoading ? text.generatingBrief : briefText}
               readOnly={briefLoading}
               onChange={(event) => setBriefText(event.target.value)}
-              placeholder="The brief will appear here..."
+              placeholder={text.briefPlaceholder}
             />
             <div className="briefActions">
               <button onClick={() => void createBrief()} disabled={briefLoading}>
                 <RefreshCw size={15} />
-                Regenerate
+                {text.regenerate}
               </button>
               <div className="briefActionsRight">
-                <button onClick={() => setBriefOpen(false)}>Cancel</button>
+                <button onClick={() => setBriefOpen(false)}>{text.cancel}</button>
                 <button className="primary" onClick={approveBrief} disabled={briefLoading || !briefText.trim()}>
                   <Play size={15} />
-                  Approve and Send to Code
+                  {text.approveBrief}
                 </button>
               </div>
             </div>
@@ -748,25 +995,28 @@ function App() {
 }
 
 function AgentCenter({
+  language,
   status,
   gitStatus,
   onRefresh,
   onAction
 }: {
+  language: Language;
   status: CliStatusResponse | null;
   gitStatus: GitStatus | null;
   onRefresh: () => void;
   onAction: (tool: CliToolStatus, action: "login" | "logout" | "test") => void;
 }) {
   const tools = status?.tools ?? [];
+  const text = uiText[language];
   return (
     <section className="glassPanel">
       <div className="panelTitle split">
         <span>
           <Zap size={17} />
-          Agent Center
+          {text.agentCenter}
         </span>
-        <button className="iconButton" onClick={onRefresh} title="Refresh">
+        <button className="iconButton" onClick={onRefresh} title={text.refresh}>
           <RefreshCw size={15} />
         </button>
       </div>
@@ -777,28 +1027,28 @@ function AgentCenter({
             <div className={`agentIcon ${tool.id}`}>{iconForTool(tool.id)}</div>
             <div className="agentInfo">
               <strong>{displayToolName(tool.id)}</strong>
-              <span>{statusText(tool)}</span>
+              <span>{statusText(tool, language)}</span>
             {tool.lastError && <small>{tool.lastError}</small>}
-              <UsageBars usage={tool.usage} />
+              <UsageBars usage={tool.usage} language={language} />
               {tool.modelOptions?.length ? (
-                <small>{tool.modelOptions.length} model - {tool.modelOptions.filter((m) => m.limited).length} limited</small>
+                <small>{tool.modelOptions.length} {text.model} - {tool.modelOptions.filter((m) => m.limited).length} {text.limited}</small>
               ) : null}
             </div>
             <div className="agentActions">
-              <button onClick={() => onAction(tool, "test")}>Test</button>
+              <button onClick={() => onAction(tool, "test")}>{text.test}</button>
               {tool.authenticated ? (
                 <button className="danger" onClick={() => onAction(tool, "logout")}>
-                  Logout
+                  {text.logout}
                 </button>
               ) : (
                 <button className="login" onClick={() => onAction(tool, "login")}>
-                  Login
+                  {text.login}
                 </button>
               )}
             </div>
           </article>
         ))}
-        {!tools.length && <p className="muted">Reading CLI status...</p>}
+        {!tools.length && <p className="muted">{text.readingCli}</p>}
 
         <article className="agentCard compact">
           <div className="agentIcon git">
@@ -808,18 +1058,19 @@ function AgentCenter({
           </div>
           <div className="agentInfo">
             <strong>Git</strong>
-            <span>{gitStatus ? "Ready" : "Waiting"}</span>
+            <span>{gitStatus ? text.ready : text.waiting}</span>
           </div>
-          <div className="statusBadge ready">{gitStatus?.hasRemote ? "Remote" : "Local"}</div>
+          <div className="statusBadge ready">{gitStatus?.hasRemote ? text.remote : text.local}</div>
         </article>
       </div>
     </section>
   );
 }
 
-function RolePanel({ agents }: { agents: Agent[] }) {
+function RolePanel({ agents, language }: { agents: Agent[]; language: Language }) {
   const roles: AgentRole[] = ["planner", "builder", "reviewer"];
   const [assignments, setAssignments] = useState<Record<string, string>>({});
+  const text = uiText[language];
 
   useEffect(() => {
     setAssignments((current) => {
@@ -837,18 +1088,18 @@ function RolePanel({ agents }: { agents: Agent[] }) {
     <section className="glassPanel">
       <div className="panelTitle">
         <Settings2 size={17} />
-        <span>Roles</span>
+        <span>{text.roles}</span>
       </div>
       {roles.map((role) => (
         <label className="roleSelect" key={role}>
-          <span>{roleLabel(role)}</span>
+          <span>{roleLabel(role, language)}</span>
           <select
             value={assignments[role] ?? ""}
             onChange={(event) => setAssignments((current) => ({ ...current, [role]: event.target.value }))}
           >
             {agents.map((agent) => (
               <option key={agent.id} value={agent.id}>
-                {agent.name} - {roleLabel(agent.role)}
+                {agent.name} - {roleLabel(agent.role, language)}
               </option>
             ))}
           </select>
@@ -856,7 +1107,7 @@ function RolePanel({ agents }: { agents: Agent[] }) {
       ))}
       <button className="resetButton">
         <RotateCcw size={14} />
-        Reset
+        {text.reset}
       </button>
     </section>
   );
@@ -891,6 +1142,7 @@ function RunPanel({
 }
 
 function ChatPanel({
+  language,
   messages,
   value,
   selectedPlanner,
@@ -926,6 +1178,7 @@ function ChatPanel({
   onCreateBrief,
   onDismissPipeline
 }: {
+  language: Language;
   messages: ChatMessage[];
   value: string;
   selectedPlanner: PlannerChoice;
@@ -962,6 +1215,9 @@ function ChatPanel({
   onDismissPipeline: () => void;
 }) {
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const text = uiText[language];
+  const plannerLabels = plannerLabelsByLanguage[language];
+  const modeMeta = modeMetaByLanguage[language];
   const [showHistory, setShowHistory] = useState(false);
   const [historyQuery, setHistoryQuery] = useState("");
   const [historyIndex, setHistoryIndex] = useState(0);
@@ -1049,13 +1305,13 @@ function ChatPanel({
       <div className="chatHeader">
         <div className="panelTitle">
           <MessageCircle size={18} />
-          <span>Planner Chat</span>
+          <span>{text.plannerChat}</span>
           <strong>{plannerLabels[selectedPlanner]}</strong>
         </div>
         <div className="chatTools">
-          <button className="ghostButton" onClick={onNewChat} title="New chat">
+          <button className="ghostButton" onClick={onNewChat} title={text.newChat}>
             <Plus size={15} />
-            New
+            {text.new}
           </button>
           <button
             className="ghostButton"
@@ -1063,13 +1319,13 @@ function ChatPanel({
               setHistoryQuery("");
               setShowHistory(true);
             }}
-            title="Chat history"
+            title={text.chatHistory}
           >
             <History size={15} />
-            History
+            {text.history}
           </button>
-          <button className="ghostButton" onClick={onClear} title="Clear chat">
-            Clear
+          <button className="ghostButton" onClick={onClear} title={text.clearChat}>
+            {text.clear}
           </button>
         </div>
       </div>
@@ -1091,7 +1347,7 @@ function ChatPanel({
           <article className="chatBubble assistant thinking">
             <div className="messageMeta">
               <Sparkles size={14} />
-              <span>{plannerLabels[selectedPlanner]} is thinking</span>
+              <span>{plannerLabels[selectedPlanner]} {text.isThinking}</span>
             </div>
             <div className="typingDots">
               <span />
@@ -1103,15 +1359,15 @@ function ChatPanel({
         {suggestedPrompt && (
           <div className="pipelineCard">
             <div>
-              <strong>Project detected</strong>
-              <p>You can turn this chat into a structured Code Task Brief and move to the coding stage.</p>
+              <strong>{text.projectDetected}</strong>
+              <p>{text.projectDetectedCopy}</p>
             </div>
             <div className="pipelineActions">
               <button className="primary" onClick={onCreateBrief}>
                 <Play size={16} />
-                Create Brief
+                {text.createBrief}
               </button>
-              <button onClick={onDismissPipeline}>Continue chat</button>
+              <button onClick={onDismissPipeline}>{text.continueChat}</button>
             </div>
           </div>
         )}
@@ -1132,8 +1388,8 @@ function ChatPanel({
                 {item === "single" && <Bot size={15} />}
                 {item === "multi" && <Users size={15} />}
                 {item === "debate" && <Swords size={15} />}
-                {modeMeta[item].label} Mode
-                <span className="modeTip">{disabled ? "At least two verified CLIs are required." : modeMeta[item].desc}</span>
+                {modeMeta[item].label} {text.mode}
+                <span className="modeTip">{disabled ? text.needsTwoCli : modeMeta[item].desc}</span>
               </button>
             );
           })}
@@ -1152,7 +1408,7 @@ function ChatPanel({
               ))}
             </div>
             <label className="roundsPicker">
-              Rounds
+              {text.rounds}
               <select value={debateRounds} onChange={(event) => onRoundsChange(Number(event.target.value))}>
                 <option value={1}>1</option>
                 <option value={2}>2</option>
@@ -1169,7 +1425,7 @@ function ChatPanel({
               <div className="attachmentChip" key={item.path}>
                 <img src={item.preview} alt={item.name} />
                 <span>{item.name}</span>
-                <button onClick={() => onRemoveImage(item.path)} title="Remove">
+                <button onClick={() => onRemoveImage(item.path)} title={text.remove}>
                   <X size={13} />
                 </button>
               </div>
@@ -1195,11 +1451,11 @@ function ChatPanel({
                 <span key={index} style={{ animationDelay: `${(index % 7) * 0.09}s` }} />
               ))}
             </div>
-            <span className="voiceText">{liveTranscript || "Listening..."}</span>
-            <button className="iconRound voiceCancel" onClick={() => stopVoice(false)} title="Cancel">
+            <span className="voiceText">{liveTranscript || text.listening}</span>
+            <button className="iconRound voiceCancel" onClick={() => stopVoice(false)} title={text.cancel}>
               <X size={17} />
             </button>
-            <button className="iconRound sendCircle" onClick={() => stopVoice(true)} title="Send">
+            <button className="iconRound sendCircle" onClick={() => stopVoice(true)} title={text.send}>
               <ArrowUp size={18} />
             </button>
           </div>
@@ -1208,7 +1464,7 @@ function ChatPanel({
             <textarea
               className="composerInput"
               value={value}
-              placeholder="Ask something or assign a task... (Enter sends - Shift+Enter new line - Ctrl+V paste image)"
+              placeholder={text.composerPlaceholder}
               onChange={(event) => onChange(event.target.value)}
               onPaste={(event) => {
                 const images = Array.from(event.clipboardData.items)
@@ -1229,7 +1485,7 @@ function ChatPanel({
             />
             <div className="composerBar">
               <div className="composerBarLeft">
-                <button className="iconRound" onClick={() => fileInputRef.current?.click()} title="Add image">
+                <button className="iconRound" onClick={() => fileInputRef.current?.click()} title={text.addImage}>
                   <Plus size={18} />
                 </button>
                 {mode === "single" && (
@@ -1237,10 +1493,10 @@ function ChatPanel({
                     className="pill"
                     value={cliOptions.includes(singleCli) ? singleCli : ""}
                     disabled={!cliOptions.length}
-                    title="Which CLI"
+                    title={text.whichCli}
                     onChange={(event) => onSingleCliChange(event.target.value as DebateParticipant)}
                   >
-                    {!cliOptions.length && <option value="">No CLI</option>}
+                    {!cliOptions.length && <option value="">{text.noCli}</option>}
                     {cliOptions.map((id) => (
                       <option key={id} value={id}>
                         {plannerLabels[id]}
@@ -1258,7 +1514,7 @@ function ChatPanel({
                   {modelOptions.map((model) => (
                     <option key={model.id} value={model.id} disabled={model.limited}>
                       {model.label}
-                      {model.limited ? ` - limited${model.resetsAt ? ` (${resetLabel(model.resetsAt)})` : ""}` : ""}
+                      {model.limited ? ` - ${text.limited}${model.resetsAt ? ` (${resetLabel(model.resetsAt, language)})` : ""}` : ""}
                     </option>
                   ))}
                 </select>
@@ -1267,7 +1523,7 @@ function ChatPanel({
                   <select
                     className="pill"
                     value={selectedEffort}
-                    title="Reasoning effort"
+                    title={text.reasoningEffort}
                     onChange={(event) => onEffortChange(event.target.value as "low" | "medium" | "high")}
                   >
                     <option value="low">Low</option>
@@ -1278,7 +1534,7 @@ function ChatPanel({
               </div>
               <div className="composerBarRight">
                 {voiceSupported && (
-                  <button className="iconRound" onClick={startVoice} title="Voice input">
+                  <button className="iconRound" onClick={startVoice} title={text.voiceInput}>
                     <Mic size={18} />
                   </button>
                 )}
@@ -1286,7 +1542,7 @@ function ChatPanel({
                   className="iconRound sendCircle"
                   disabled={(!value.trim() && !attachments.length) || thinking || !cliOptions.length}
                   onClick={() => onSend()}
-                  title="Send"
+                  title={text.send}
                 >
                   <ArrowUp size={18} />
                 </button>
@@ -1305,7 +1561,7 @@ function ChatPanel({
               <input
                 autoFocus
                 value={historyQuery}
-                placeholder="Search chats..."
+                placeholder={text.searchChats}
                 onChange={(event) => {
                   setHistoryQuery(event.target.value);
                   setHistoryIndex(0);
@@ -1326,11 +1582,12 @@ function ChatPanel({
               />
             </div>
             <div className="historyList">
-              {flatConvos.length === 0 && <div className="historyEmpty">No matching chats.</div>}
+              {flatConvos.length === 0 && <div className="historyEmpty">{text.noMatchingChats}</div>}
               {activeConvo && (
                 <>
-                  <div className="historyGroup">Current</div>
+                  <div className="historyGroup">{text.current}</div>
                   <HistoryRow
+                    language={language}
                     convo={activeConvo}
                     highlighted={historyIndex === 0}
                     onOpen={() => {
@@ -1341,11 +1598,12 @@ function ChatPanel({
                   />
                 </>
               )}
-              {recentConvos.length > 0 && <div className="historyGroup">Recent chats</div>}
+              {recentConvos.length > 0 && <div className="historyGroup">{text.recentChats}</div>}
               {recentConvos.map((convo, index) => {
                 const flatIndex = activeConvo ? index + 1 : index;
                 return (
                   <HistoryRow
+                    language={language}
                     key={convo.id}
                     convo={convo}
                     highlighted={historyIndex === flatIndex}
@@ -1359,9 +1617,9 @@ function ChatPanel({
               })}
             </div>
             <div className="historyFooter">
-              <span>Up/down to navigate</span>
-              <span>Enter to select</span>
-              <span>Esc close</span>
+              <span>{text.upDownNavigate}</span>
+              <span>{text.enterSelect}</span>
+              <span>{text.escClose}</span>
             </div>
           </div>
         </div>
@@ -1370,41 +1628,45 @@ function ChatPanel({
   );
 }
 
-function agoLabel(iso: string) {
+function agoLabel(iso: string, language: Language) {
+  const text = uiText[language];
   const t = Date.parse(iso);
   if (!Number.isFinite(t)) return "";
   const mins = Math.round((Date.now() - t) / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins} min ago`;
+  if (mins < 1) return text.justNow;
+  if (mins < 60) return `${mins} ${text.minAgo}`;
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours} h ago`;
+  if (hours < 24) return `${hours} ${text.hAgo}`;
   const days = Math.floor(hours / 24);
-  if (days < 7) return `${days} d ago`;
-  return `${Math.floor(days / 7)} w ago`;
+  if (days < 7) return `${days} ${text.dAgo}`;
+  return `${Math.floor(days / 7)} ${text.wAgo}`;
 }
 
 function HistoryRow({
+  language,
   convo,
   highlighted,
   onOpen,
   onDelete
 }: {
+  language: Language;
   convo: StoredConversation;
   highlighted: boolean;
   onOpen: () => void;
   onDelete: () => void;
 }) {
+  const text = uiText[language];
   return (
     <div className={`historyItem${highlighted ? " highlighted" : ""}`} onClick={onOpen}>
       <span className="historyItemTitle">{convo.title}</span>
-      <span className="historyItemTime">{agoLabel(convo.updatedAt)}</span>
+      <span className="historyItemTime">{agoLabel(convo.updatedAt, language)}</span>
       <button
         className="historyItemDelete"
         onClick={(event) => {
           event.stopPropagation();
           onDelete();
         }}
-        title="Delete"
+        title={text.delete}
       >
         <Trash2 size={14} />
       </button>
@@ -1413,38 +1675,41 @@ function HistoryRow({
 }
 
 function ConversationsPanel({
+  language,
   conversations,
   activeId,
   onOpen,
   onDelete,
   onNew
 }: {
+  language: Language;
   conversations: StoredConversation[];
   activeId: string;
   onOpen: (id: string) => void;
   onDelete: (id: string) => void;
   onNew: () => void;
 }) {
+  const text = uiText[language];
   return (
     <section className="glassPanel">
       <div className="panelTitle split">
         <span>
           <History size={17} />
-          Chat History
+          {text.savedChatHistory}
         </span>
-        <button className="iconButton" onClick={onNew} title="New chat">
+        <button className="iconButton" onClick={onNew} title={text.newChat}>
           <Plus size={15} />
         </button>
       </div>
       <div className="conversationList">
-        {conversations.length === 0 && <small className="historyEmpty">No saved chats yet.</small>}
+        {conversations.length === 0 && <small className="historyEmpty">{text.noSavedChats}</small>}
         {conversations.map((convo) => (
           <div key={convo.id} className={`conversationItem${convo.id === activeId ? " active" : ""}`}>
             <button className="conversationOpen" onClick={() => onOpen(convo.id)}>
               <MessageCircle size={14} />
               <span>{convo.title}</span>
             </button>
-            <button className="conversationDelete" onClick={() => onDelete(convo.id)} title="Delete">
+            <button className="conversationDelete" onClick={() => onDelete(convo.id)} title={text.delete}>
               <Trash2 size={14} />
             </button>
           </div>
@@ -1454,10 +1719,11 @@ function ConversationsPanel({
   );
 }
 
-function StreamPanel({ items, onClear }: { items: StreamItem[]; onClear: () => void }) {
+function StreamPanel({ items, onClear, language }: { items: StreamItem[]; onClear: () => void; language: Language }) {
   const [activeTab, setActiveTab] = useState<"all" | "claude" | "codex" | "ag" | "system">("all");
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 15;
+  const text = uiText[language];
 
   useEffect(() => {
     setCurrentPage(1);
@@ -1486,14 +1752,14 @@ function StreamPanel({ items, onClear }: { items: StreamItem[]; onClear: () => v
         <span className="dot yellow" />
         <span className="dot green" />
         <strong>orkestra-stream</strong>
-        <button onClick={onClear}>Clear</button>
+        <button onClick={onClear}>{text.clear}</button>
       </div>
       <div className="streamTabs">
         <button
           className={activeTab === "all" ? "active" : ""}
           onClick={() => setActiveTab("all")}
         >
-          All
+          {text.all}
         </button>
         <button
           className={activeTab === "claude" ? "active" : ""}
@@ -1530,7 +1796,7 @@ function StreamPanel({ items, onClear }: { items: StreamItem[]; onClear: () => v
             </article>
           ))
         ) : (
-          <p>Waiting for logs...</p>
+          <p>{text.logsWaiting}</p>
         )}
       </div>
       {totalPages > 1 && (
@@ -1539,14 +1805,14 @@ function StreamPanel({ items, onClear }: { items: StreamItem[]; onClear: () => v
             disabled={currentPage === 1}
             onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
           >
-            Previous
+            {text.previous}
           </button>
-          <span>Page {currentPage} / {totalPages}</span>
+          <span>{text.page} {currentPage} / {totalPages}</span>
           <button
             disabled={currentPage === totalPages}
             onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
           >
-            Next
+            {text.next}
           </button>
         </div>
       )}
@@ -1585,16 +1851,18 @@ function displayToolName(id: CliToolStatus["id"]) {
   return "Gemini CLI";
 }
 
-function statusText(tool: CliToolStatus) {
-  if (!tool.installed) return "Not installed";
-  if (!tool.authenticated) return "Login required";
-  if (!tool.quotaOk) return "Quota issue";
-  if (tool.responding) return "Responding";
-  if (tool.id === "antigravity") return "Gemini verified";
-  return "Verified";
+function statusText(tool: CliToolStatus, language: Language) {
+  const text = uiText[language];
+  if (!tool.installed) return text.notInstalled;
+  if (!tool.authenticated) return text.loginRequired;
+  if (!tool.quotaOk) return text.quotaIssue;
+  if (tool.responding) return text.responding;
+  if (tool.id === "antigravity") return text.geminiVerified;
+  return text.verified;
 }
 
-function UsageBars({ usage }: { usage?: CliToolStatus["usage"] }) {
+function UsageBars({ usage, language }: { usage?: CliToolStatus["usage"]; language: Language }) {
+  const text = uiText[language];
   if (!usage?.windows.length) return null;
   return (
     <div className="usageBars">
@@ -1610,39 +1878,42 @@ function UsageBars({ usage }: { usage?: CliToolStatus["usage"] }) {
               style={{ width: `${window.usedPercent}%` }}
             />
           </div>
-          {window.resetsAt && <small className="usageReset">resets {resetLabel(window.resetsAt)}</small>}
+          {window.resetsAt && <small className="usageReset">{text.resets} {resetLabel(window.resetsAt, language)}</small>}
         </div>
       ))}
-      {usage.stale && <small className="usageStale">Warning: stale data - waiting for cligate update</small>}
+      {usage.stale && <small className="usageStale">{text.staleUsage}</small>}
     </div>
   );
 }
 
-function resetLabel(iso: string) {
+function resetLabel(iso: string, language: Language) {
+  const text = uiText[language];
   const t = Date.parse(iso);
   if (!Number.isFinite(t)) return "";
   const diffMs = t - Date.now();
-  if (diffMs <= 0) return "now";
+  if (diffMs <= 0) return text.now;
   const mins = Math.round(diffMs / 60000);
-  if (mins < 60) return `${mins} min later`;
+  if (mins < 60) return `${mins} ${text.minLater}`;
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours} h ${mins % 60} min later`;
+  if (hours < 24) return `${hours} ${text.hLater} ${mins % 60} ${text.minLater}`;
   const days = Math.floor(hours / 24);
-  return `${days} d ${hours % 24} h later`;
+  return `${days} ${text.dLater} ${hours % 24} ${text.hLater}`;
 }
 
-function actionLabel(action: "login" | "logout" | "test") {
-  if (action === "login") return "login";
-  if (action === "logout") return "logout";
-  return "test";
+function actionLabel(action: "login" | "logout" | "test", language: Language) {
+  const text = uiText[language];
+  if (action === "login") return text.login.toLowerCase();
+  if (action === "logout") return text.logout.toLowerCase();
+  return text.test.toLowerCase();
 }
 
-function roleLabel(role: AgentRole) {
-  if (role === "planner") return "Planner";
-  if (role === "builder") return "Builder";
-  if (role === "reviewer") return "Reviewer";
-  if (role === "fixer") return "Fixer";
-  return "Custom";
+function roleLabel(role: AgentRole, language: Language) {
+  const text = uiText[language];
+  if (role === "planner") return text.planner;
+  if (role === "builder") return text.builder;
+  if (role === "reviewer") return text.reviewer;
+  if (role === "fixer") return text.fixer;
+  return text.custom;
 }
 
 createRoot(document.getElementById("root")!).render(
