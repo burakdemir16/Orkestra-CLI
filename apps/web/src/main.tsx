@@ -281,6 +281,11 @@ const uiText = {
     steeringPlaceholder: "Task is running — leave a note for the next agent…",
     teamPlan: "Team Plan",
     teamPlanTitle: "Let the planner split the project into sub-tasks for the team",
+    operatorAnalysis: "Operator Analysis",
+    operator: "Operator",
+    operatorNone: "No operator (summary)",
+    operatorTitle: "Operator model that synthesizes the debate into a structured analysis",
+    codeFromAnalysis: "Code from this analysis",
     approvePlan: "Approve & Run Team",
     taskTitle: "Task description",
     role: "Role",
@@ -454,6 +459,11 @@ const uiText = {
     steeringPlaceholder: "Görev çalışıyor — sıradaki ajana not bırak…",
     teamPlan: "Ekip Planı",
     teamPlanTitle: "Plancı projeyi ekip için alt-görevlere bölsün",
+    operatorAnalysis: "Operatör Analizi",
+    operator: "Operatör",
+    operatorNone: "Operatör yok (özet)",
+    operatorTitle: "Tartışmayı yapılandırılmış analize çeviren operatör modeli",
+    codeFromAnalysis: "Bu analize göre kodla",
     approvePlan: "Onayla ve Ekibi Başlat",
     taskTitle: "Görev açıklaması",
     role: "Rol",
@@ -615,6 +625,9 @@ function App() {
   // Paralel/Tartışma katılımcıları: aynı CLI'den farklı modeller ayrı katılımcı olabilir.
   const [participants, setParticipants] = useState<{ cli: DebateParticipant; model: string }[]>([]);
   const [debateRounds, setDebateRounds] = useState(1);
+  // Operatör (Code tartışma): tartışmayı 5 başlıklı analize çeviren model. null = klasik özet.
+  const [operatorSel, setOperatorSel] = useState<{ cli: DebateParticipant; model: string } | null>(null);
+  const [lastAnalysis, setLastAnalysis] = useState<string | null>(null);
   const [chatHeight, setChatHeight] = useState<number>(() => {
     const saved = Number(localStorage.getItem("orkestra.chatHeight"));
     return Number.isFinite(saved) && saved >= 280 ? saved : 600;
@@ -901,23 +914,29 @@ function App() {
     content?: string;
     message?: string;
   }) {
-    if (ev.type === "message" || ev.type === "summary") {
+    if (ev.type === "message" || ev.type === "summary" || ev.type === "analysis") {
       const isSummary = ev.type === "summary";
+      const isAnalysis = ev.type === "analysis";
       const msg: ChatMessage = {
         id: crypto.randomUUID(),
         role: "assistant",
-        planner: isSummary ? "system" : ev.planner,
-        modelLabel: isSummary ? text.decisionSummary : ev.modelLabel,
+        planner: isSummary || isAnalysis ? "system" : ev.planner,
+        modelLabel: isAnalysis
+          ? `${text.operatorAnalysis} · ${ev.modelLabel ?? ""}`
+          : isSummary
+            ? text.decisionSummary
+            : ev.modelLabel,
         content: ev.content ?? "",
         createdAt: new Date().toISOString()
       };
       setMessages((current) => [...current, msg]);
+      if (isAnalysis) setLastAnalysis(ev.content ?? "");
       setStreamItems((current) => [
         ...current,
         {
           id: crypto.randomUUID(),
           source: msg.modelLabel ?? "?",
-          type: isSummary ? "summary" : "assistant",
+          type: isSummary || isAnalysis ? "summary" : "assistant",
           message: msg.content,
           createdAt: msg.createdAt ?? new Date().toISOString()
         }
@@ -947,7 +966,10 @@ function App() {
         participants: participants.map((p) => ({ cli: p.cli, model: p.model === "default" ? undefined : p.model })),
         rounds: debateRounds,
         effort: selectedEffort,
-        detailLevel: selectedDetailLevel
+        detailLevel: selectedDetailLevel,
+        operator: activeView === "code" && operatorSel
+          ? { cli: operatorSel.cli, model: operatorSel.model === "default" ? undefined : operatorSel.model }
+          : undefined
       })
     });
     if (!res.ok || !res.body) throw new Error(await res.text().catch(() => text.debateCouldNotStart));
@@ -1460,6 +1482,10 @@ function App() {
                   onClear={() => { setMessages([welcomeMessageFor(language)]); setSuggestedPrompt(null); setAttachments([]); }}
                   onCreateBrief={() => void createBrief()}
                   onCreatePlan={() => void createPlan()}
+                  participantSources={participantSources}
+                  operatorSel={operatorSel}
+                  onOperatorChange={setOperatorSel}
+                  analysisReady={!!lastAnalysis}
                   onStart={startFromChat}
                   runActive={activeRun?.status === "running" || activeRun?.status === "queued"}
                   onAddNote={(note) => void addRunNote(note)}
@@ -3495,6 +3521,7 @@ function CodeChatPanel({
   selectedEffort, onEffortChange, selectedDetailLevel, onDetailLevelChange,
   mode, onModeChange, multiAvailable, cliOptions, singleCli, onSingleCliChange,
   thinking, onModelChange, onChange, onSend, onClear, onCreateBrief, onCreatePlan, onStart,
+  participantSources, operatorSel, onOperatorChange, analysisReady,
   runActive, onAddNote, onStopRun,
   attachments, onAddImage, onRemoveImage,
   conversations, activeConversationId, onOpenConversation, onDeleteConversation, onNewChat,
@@ -3523,6 +3550,10 @@ function CodeChatPanel({
   onClear: () => void;
   onCreateBrief: () => void;
   onCreatePlan: () => void;
+  participantSources: { cli: DebateParticipant; label: string; models: ModelOption[] }[];
+  operatorSel: { cli: DebateParticipant; model: string } | null;
+  onOperatorChange: (op: { cli: DebateParticipant; model: string } | null) => void;
+  analysisReady: boolean;
   onStart: () => void;
   runActive: boolean;
   onAddNote: (note: string) => void;
@@ -3616,6 +3647,12 @@ function CodeChatPanel({
             <FileText size={13} />
             Brief
           </button>
+          {analysisReady && (
+            <button className="ghostButton startButton" onClick={onCreatePlan} title={text.codeFromAnalysis}>
+              <Play size={13} />
+              {text.codeFromAnalysis}
+            </button>
+          )}
           <button className="ghostButton" onClick={onCreatePlan} title={text.teamPlanTitle}>
             <Users size={13} />
             {text.teamPlan}
@@ -3719,6 +3756,27 @@ function CodeChatPanel({
               {modelOptions.map((m) => (
                 <option key={m.id} value={m.id} disabled={m.limited}>{m.label}{m.limited ? ` - ${text.limited}` : ""}</option>
               ))}
+            </select>
+          )}
+          {mode === "debate" && (
+            <select
+              className="pill"
+              value={operatorSel ? `${operatorSel.cli}|${operatorSel.model}` : ""}
+              title={text.operatorTitle}
+              onChange={(e) => {
+                if (!e.target.value) return onOperatorChange(null);
+                const [cli, model] = e.target.value.split("|");
+                onOperatorChange({ cli: cli as DebateParticipant, model });
+              }}
+            >
+              <option value="">{text.operatorNone}</option>
+              {participantSources.flatMap((s) =>
+                s.models.map((m) => (
+                  <option key={`${s.cli}|${m.id}`} value={`${s.cli}|${m.id}`}>
+                    🎯 {s.label}{m.id !== "default" ? ` · ${m.label}` : ""}
+                  </option>
+                ))
+              )}
             </select>
           )}
           <select

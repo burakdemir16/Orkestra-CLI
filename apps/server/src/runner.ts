@@ -85,8 +85,13 @@ export class Runner {
   }
 
   private async runTeamTask(run: Run, task: PlanTask, done: Map<string, string>): Promise<string> {
-    const agent = task.agentId ? this.store.getAgent(task.agentId) : this.pickAgent(task.role ?? "builder");
-    if (!agent || !agent.enabled) {
+    const role = task.role ?? "builder";
+    // Birincil: belirli ajan ya da role uygun (limitli değilse onu seç). Limitli ajan
+    // tek seçenekse yine de zincir başı yap ki yedeğine devredilebilsin.
+    const primary =
+      (task.agentId ? this.store.getAgent(task.agentId) : this.pickAgent(role)) ??
+      this.store.listAgents().find((a) => a.enabled && a.role === role);
+    if (!primary || !primary.enabled) {
       this.emit(run.id, "failed", `Göreve ajan atanamadı: ${task.title}`);
       return "(ajan yok)";
     }
@@ -107,14 +112,46 @@ export class Runner {
       "",
       "Görevini somut olarak tamamla; gerekli dosyaları oluştur/düzenle. Çıktını kısa tut."
     ].filter(Boolean).join("\n");
-    this.emit(run.id, "agent_step", `${agent.name} → ${task.title}`, agent.id);
-    try {
-      return await this.runAgent(agent, run, "", [], { cwd, promptText });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.emit(run.id, "failed", `${task.title}: ${message}`, agent.id);
-      return `(hata: ${message})`;
+
+    // Faz 5: birincil ajan + yedek zinciri. Limit/hata olursa yedeğe devret.
+    // Dosyalar workspace'te kaldığı için yeni ajan kaldığı yerden devam eder.
+    const chain = this.buildAgentChain(primary);
+    let lastError = "";
+    for (let i = 0; i < chain.length; i++) {
+      const agent = chain[i];
+      // Güncel durum: bu ajan bu sırada limite takıldıysa atla.
+      if (this.store.getAgent(agent.id)?.status === "limited") {
+        this.emit(run.id, "limit_detected", `${agent.name} limitli, atlanıyor.`, agent.id);
+        continue;
+      }
+      if (i > 0) {
+        this.emit(run.id, "fallback_used", `${chain[0].name} başarısız/limitli → ${agent.name} devraldı.`, agent.id);
+      }
+      this.emit(run.id, "agent_step", `${agent.name} → ${task.title}`, agent.id);
+      try {
+        return await this.runAgent(agent, run, "", [], { cwd, promptText });
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
+        this.emit(run.id, "failed", `${task.title} (${agent.name}): ${lastError}`, agent.id);
+        // sonraki yedeğe geç
+      }
     }
+    return `(tüm ajanlar başarısız: ${lastError})`;
+  }
+
+  // Bir ajan + (enabled) yedeklerinden oluşan aday zinciri.
+  private buildAgentChain(primary: Agent): Agent[] {
+    const chain: Agent[] = [primary];
+    const seen = new Set([primary.id]);
+    for (const fallbackId of primary.fallbackAgentIds) {
+      if (seen.has(fallbackId)) continue;
+      const fallback = this.store.getAgent(fallbackId);
+      if (fallback && fallback.enabled) {
+        chain.push(fallback);
+        seen.add(fallbackId);
+      }
+    }
+    return chain;
   }
 
   // Kullanıcının çalışan run'a bıraktığı not — sıradaki ajanın prompt'una eklenir.
@@ -250,6 +287,13 @@ export class Runner {
         }
       }
     }
+    // CLI'lar (özellikle agy) sistem PATH'inde olmayabilir; kendi bin dizinlerini ekle.
+    if (process.platform === "win32") {
+      const home = process.env.USERPROFILE ?? "";
+      const agyBin = join(home, "AppData", "Local", "agy", "bin");
+      const npmDir = join(process.env.APPDATA ?? join(home, "AppData", "Roaming"), "npm");
+      cleanEnv.PATH = [agyBin, npmDir, cleanEnv.PATH ?? cleanEnv.Path].filter(Boolean).join(";");
+    }
 
     return new Promise<string>((resolve, reject) => {
       mkdirSync(cwd, { recursive: true });
@@ -268,8 +312,12 @@ export class Runner {
         lastSnapshot = nextSnapshot;
       };
       const fileWatch = setInterval(reportFileChanges, 1000);
-      const args = interpolateArgs(agent.argsTemplate, {
-        prompt: opts?.promptText ?? buildAgentPrompt(run.prompt, agent, transcript, notes),
+      const promptText = opts?.promptText ?? buildAgentPrompt(run.prompt, agent, transcript, notes);
+      // Prompt'u argüman yerine stdin'den ver: Windows cmd.exe çok satırlı argümanı keser.
+      // {prompt} placeholder'ı args'tan çıkarılır; metin stdin'e yazılır.
+      const templateArgs = agent.argsTemplate.filter((arg) => arg.trim() !== "{prompt}");
+      const args = interpolateArgs(templateArgs, {
+        prompt: promptText,
         workspace: cwd,
         transcript,
         role: agent.role
@@ -278,6 +326,11 @@ export class Runner {
         cwd,
         env: cleanEnv
       });
+      try {
+        child.stdin?.end(promptText);
+      } catch {
+        // stdin yazılamazsa süreç zaten başlamamış olabilir
+      }
       const control = this.controls.get(run.id);
       if (control) control.child = child;
 
@@ -354,7 +407,7 @@ function spawnCommand(
   if (process.platform !== "win32") {
     return spawn(command, args, {
       ...options,
-      stdio: ["ignore", "pipe", "pipe"]
+      stdio: ["pipe", "pipe", "pipe"]
     });
   }
 
@@ -362,7 +415,7 @@ function spawnCommand(
   return spawn(commandLine, {
     ...options,
     shell: true,
-    stdio: ["ignore", "pipe", "pipe"]
+    stdio: ["pipe", "pipe", "pipe"]
   });
 }
 

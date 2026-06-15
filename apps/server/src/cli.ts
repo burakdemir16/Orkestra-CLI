@@ -554,6 +554,7 @@ export type DebateTurn = { planner: PlannerId; modelLabel: string; content: stri
 export type DebateEvent =
   | { type: "message"; planner: PlannerId; modelLabel: string; content: string; round: number }
   | { type: "summary"; content: string }
+  | { type: "analysis"; content: string; modelLabel: string }
   | { type: "error"; planner: PlannerId; modelLabel: string; message: string }
   | { type: "done" };
 
@@ -564,7 +565,8 @@ export async function* runDebate(
   rounds: number,
   model?: string,
   effort?: EffortLevel,
-  detailLevel?: "low" | "medium" | "high"
+  detailLevel?: "low" | "medium" | "high",
+  operator?: Participant
 ): AsyncGenerator<DebateEvent> {
   const active: Participant[] = [];
   for (const person of participants) {
@@ -601,12 +603,30 @@ export async function* runDebate(
   }
 
   if (turns.length) {
-    const summarizer = active[0];
-    try {
-      const summary = cleanPlannerOutput(await callPlannerRaw(summarizer.cli, buildDebateSummaryPrompt(message, turns), summarizer.model ?? model, effort));
-      yield { type: "summary", content: summary };
-    } catch {
-      // Ozet basarisizsa sessiz gec; ham tartisma yine de kullanicida.
+    if (operator) {
+      // Operatör: tartışmayı 5 başlıklı yapılandırılmış analize çevirir.
+      try {
+        const analysis = cleanPlannerOutput(
+          await callPlannerRaw(operator.cli, buildOperatorAnalysisPrompt(message, turns), operator.model, effort)
+        );
+        yield { type: "analysis", content: analysis, modelLabel: participantLabel(operator.cli, operator.model) };
+      } catch {
+        // Analiz basarisizsa basit ozete dus.
+        try {
+          const summary = cleanPlannerOutput(await callPlannerRaw(operator.cli, buildDebateSummaryPrompt(message, turns), operator.model, effort));
+          yield { type: "summary", content: summary };
+        } catch {
+          // sessiz gec
+        }
+      }
+    } else {
+      const summarizer = active[0];
+      try {
+        const summary = cleanPlannerOutput(await callPlannerRaw(summarizer.cli, buildDebateSummaryPrompt(message, turns), summarizer.model ?? model, effort));
+        yield { type: "summary", content: summary };
+      } catch {
+        // Ozet basarisizsa sessiz gec; ham tartisma yine de kullanicida.
+      }
     }
   }
   yield { type: "done" };
@@ -695,6 +715,34 @@ function buildDebateSummaryPrompt(message: string, turns: DebateTurn[]) {
     "Kısa, net ve Türkçe yaz. Yeni tartışma açma; sadece özetle.",
     "",
     `Asıl konu: ${message}`,
+    "",
+    "Tartışma kaydı:",
+    transcript
+  ].join("\n");
+}
+
+// Operatör: tartışmayı 5 başlıklı yapılandırılmış analize çevirir (Code tartışma modu).
+function buildOperatorAnalysisPrompt(message: string, turns: DebateTurn[]) {
+  const transcript = turns.map((turn) => `### ${turn.modelLabel}\n${turn.content}`).join("\n\n");
+  return [
+    "Sen Orkestra OPERATÖRÜsün. Aşağıda birden fazla AI modelinin bir KODLAMA görevini tartıştığı kayıt var.",
+    "Görevin: bu görüşleri objektif analiz et ve TAM OLARAK şu 5 başlıkla, Markdown olarak ver:",
+    "",
+    "## Ortak Görüş",
+    "Tüm modellerin hemfikir olduğu noktalar (madde madde).",
+    "## Ayrıştığı Noktalar",
+    "Modellerin çeliştiği/farklı düşündüğü noktalar; kim ne diyor kısaca belirt.",
+    "## Kısmi Uzlaşı",
+    "En az 2 modelin benzer düşündüğü ama tümünün katılmadığı noktalar.",
+    "## Benzersiz Fikirler",
+    "Yalnızca tek bir modelin öne sürdüğü değerli fikirler (kimden geldiğini yaz).",
+    "## Kör Noktalar",
+    "Hiçbir modelin değinmediği ama bu görev için ÖNEMLİ riskler/eksikler — bunu SEN ekle.",
+    "",
+    "Sonda kısa bir '## Önerilen Yaklaşım' ile uygulanabilir nihai kararı madde madde yaz.",
+    "Net, somut ve Türkçe yaz. Yeni tartışma açma; sadece analiz et.",
+    "",
+    `Kodlama görevi: ${message}`,
     "",
     "Tartışma kaydı:",
     transcript

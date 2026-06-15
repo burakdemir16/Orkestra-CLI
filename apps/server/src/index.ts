@@ -111,6 +111,7 @@ app.post<{
     model?: string;
     effort?: EffortLevel;
     detailLevel?: "low" | "medium" | "high";
+    operator?: ChatParticipant;
   };
 }>("/api/debate", async (request, reply) => {
   const message = request.body.message?.trim();
@@ -129,6 +130,7 @@ app.post<{
   });
 
   try {
+    const operator = request.body.operator?.cli ? { cli: request.body.operator.cli, model: request.body.operator.model } : undefined;
     for await (const event of runDebate(
       participants,
       message,
@@ -136,7 +138,8 @@ app.post<{
       request.body.rounds ?? 1,
       request.body.model,
       request.body.effort,
-      request.body.detailLevel
+      request.body.detailLevel,
+      operator
     )) {
       reply.raw.write(`${JSON.stringify(event)}\n`);
     }
