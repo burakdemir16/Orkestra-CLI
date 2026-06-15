@@ -1,0 +1,8 @@
+node_modules/
+.env
+dist/
+data/
+outputs/
+workspaces/
+*.log
+portfolio-test/
