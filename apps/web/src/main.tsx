@@ -920,7 +920,7 @@ function App() {
       const msg: ChatMessage = {
         id: crypto.randomUUID(),
         role: "assistant",
-        planner: isSummary || isAnalysis ? "system" : ev.planner,
+        planner: isAnalysis ? "analysis" : isSummary ? "system" : ev.planner,
         modelLabel: isAnalysis
           ? `${text.operatorAnalysis} · ${ev.modelLabel ?? ""}`
           : isSummary
