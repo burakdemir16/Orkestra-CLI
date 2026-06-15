@@ -198,8 +198,8 @@ function App() {
     setAttachments((current) => current.filter((item) => item.path !== path));
   }
 
-  async function sendChat() {
-    const content = chatInput.trim();
+  async function sendChat(overrideText?: string) {
+    const content = (overrideText ?? chatInput).trim();
     const pending = attachments;
     if ((!content && !pending.length) || isThinking) return;
     setNotice(null);
@@ -378,7 +378,7 @@ function App() {
             attachments={attachments}
             onAddImage={(file) => void addImage(file)}
             onRemoveImage={removeImage}
-            onSend={() => void sendChat()}
+            onSend={(text) => void sendChat(text)}
             onClear={() => {
               setMessages([welcomeMessage]);
               setSuggestedPrompt(null);
@@ -571,7 +571,7 @@ function ChatPanel({
   attachments: { path: string; name: string; preview: string }[];
   onAddImage: (file: File) => void;
   onRemoveImage: (path: string) => void;
-  onSend: () => void;
+  onSend: (text?: string) => void;
   onClear: () => void;
   onStartPipeline: (prompt: string) => void;
   onDismissPipeline: () => void;
@@ -579,33 +579,63 @@ function ChatPanel({
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [listening, setListening] = useState(false);
+  const [liveTranscript, setLiveTranscript] = useState("");
+  const [recordSeconds, setRecordSeconds] = useState(0);
   const recognitionRef = useRef<any>(null);
+  const transcriptRef = useRef("");
+  const sendAfterRef = useRef(false);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const voiceSupported = typeof window !== "undefined" && Boolean((window as any).webkitSpeechRecognition || (window as any).SpeechRecognition);
 
-  function toggleVoice() {
-    if (listening) {
-      recognitionRef.current?.stop();
-      return;
-    }
+  function startVoice() {
     const Recognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
-    if (!Recognition) return;
+    if (!Recognition || listening) return;
     const recognition = new Recognition();
     recognition.lang = "tr-TR";
-    recognition.interimResults = false;
-    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.continuous = true;
+    transcriptRef.current = "";
+    sendAfterRef.current = false;
+    setLiveTranscript("");
+    setRecordSeconds(0);
     recognition.onresult = (event: any) => {
       const transcript = Array.from(event.results)
         .map((result: any) => result[0]?.transcript ?? "")
         .join(" ")
+        .replace(/\s+/g, " ")
         .trim();
-      if (transcript) onChange((value ? `${value} ` : "") + transcript);
+      transcriptRef.current = transcript;
+      setLiveTranscript(transcript);
     };
-    recognition.onend = () => setListening(false);
-    recognition.onerror = () => setListening(false);
+    recognition.onend = () => {
+      setListening(false);
+      if (timerRef.current) clearInterval(timerRef.current);
+      const text = transcriptRef.current.trim();
+      if (sendAfterRef.current) {
+        const combined = value.trim() ? `${value.trim()} ${text}`.trim() : text;
+        if (combined) onSend(combined);
+      } else if (text) {
+        onChange(value.trim() ? `${value.trim()} ${text}` : text);
+      }
+      setLiveTranscript("");
+    };
+    recognition.onerror = () => {
+      setListening(false);
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
     recognitionRef.current = recognition;
     setListening(true);
     recognition.start();
+    timerRef.current = setInterval(() => setRecordSeconds((s) => s + 1), 1000);
   }
+
+  function stopVoice(send: boolean) {
+    sendAfterRef.current = send;
+    if (!send) transcriptRef.current = "";
+    recognitionRef.current?.stop();
+  }
+
+  const recordClock = `${Math.floor(recordSeconds / 60)}:${String(recordSeconds % 60).padStart(2, "0")}`;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -686,6 +716,16 @@ function ChatPanel({
           value={value}
           placeholder="Mesaj yazın... (Ctrl+Enter gönder)"
           onChange={(event) => onChange(event.target.value)}
+          onPaste={(event) => {
+            const images = Array.from(event.clipboardData.items)
+              .filter((item) => item.type.startsWith("image/"))
+              .map((item) => item.getAsFile())
+              .filter((file): file is File => Boolean(file));
+            if (images.length) {
+              event.preventDefault();
+              images.forEach((file) => onAddImage(file));
+            }
+          }}
           onKeyDown={(event) => {
             if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
               event.preventDefault();
