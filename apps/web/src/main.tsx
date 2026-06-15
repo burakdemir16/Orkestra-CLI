@@ -47,19 +47,20 @@ import "./styles.css";
 type PlannerChoice = "auto" | "all" | "debate" | "codex" | "claude" | "antigravity";
 type DebateParticipant = "claude" | "codex" | "antigravity";
 type ChatMode = "single" | "multi" | "debate";
+type Language = "en" | "tr";
 
 const modeMeta: Record<ChatMode, { label: string; desc: string }> = {
   single: {
-    label: "Tek Ajan",
-    desc: "Sadece seçtiğin CLI yanıtlar. En hızlı ve ekonomik mod; günlük sohbet, basit sorular ve küçük düzeltmeler için."
+    label: "Single Agent",
+    desc: "Only the selected CLI responds. Fastest and most economical mode for daily chat, simple questions, and small fixes."
   },
   multi: {
-    label: "Çoklu Ajan",
-    desc: "Aynı mesaj tüm doğrulanmış CLI'lara gider; her biri bağımsız yanıtlar ve birbirinin mesajlarını görür. Maliyet ≈ CLI sayısı kadar."
+    label: "Multi Agent",
+    desc: "The same message is sent to every verified CLI. Each responds independently and can see the shared history. Cost is roughly proportional to the number of CLIs."
   },
   debate: {
-    label: "Tartışma",
-    desc: "Seçtiğin ajanlar sırayla birbirine cevap vererek tartışır, sonunda Orkestra karar özeti çıkarır. Büyük kararlar / mimari için. ⚠️ Yüksek token maliyeti (5–10 kat+)."
+    label: "Debate",
+    desc: "Selected agents answer each other in rounds, then Orkestra produces a decision summary. Best for major decisions and architecture. High token cost."
   }
 };
 type StreamItem = {
@@ -71,9 +72,9 @@ type StreamItem = {
 };
 
 const plannerLabels: Record<PlannerChoice, string> = {
-  auto: "Otomatik",
-  all: "Tüm CLI'lar (Paralel)",
-  debate: "Tartışma (Kurul)",
+  auto: "Automatic",
+  all: "All CLIs (Parallel)",
+  debate: "Debate Board",
   codex: "OpenAI Codex",
   claude: "Claude Code",
   antigravity: "Gemini CLI"
@@ -103,7 +104,7 @@ const welcomeMessage: ChatMessage = {
   planner: "system",
   modelLabel: "Orkestra",
   content:
-    "Merhaba! Ben Orkestra Planlayıcısı. Bir proje planlamak, sohbet etmek veya kod yazmak için bana yazabilirsiniz.",
+    "Hello! I am the Orkestra Planner. You can ask me to plan a project, chat, or write code.",
   createdAt: new Date().toISOString()
 };
 
@@ -124,14 +125,14 @@ function saveConversations(items: StoredConversation[]) {
   try {
     localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(items.slice(0, 50)));
   } catch {
-    // localStorage dolu/erisilemez olabilir; sessiz gec.
+    // localStorage may be full or unavailable; ignore silently.
   }
 }
 
 function deriveTitle(messages: ChatMessage[]) {
   const firstUser = messages.find((message) => message.role === "user");
-  const text = (firstUser?.content ?? "Yeni sohbet").replace(/\s+/g, " ").trim();
-  return text.length > 42 ? `${text.slice(0, 42)}…` : text || "Yeni sohbet";
+  const text = (firstUser?.content ?? "New chat").replace(/\s+/g, " ").trim();
+  return text.length > 42 ? `${text.slice(0, 42)}...` : text || "New chat";
 }
 
 function App() {
@@ -144,6 +145,16 @@ function App() {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem("orkestra.theme", theme);
   }, [theme]);
+
+  const [language, setLanguage] = useState<Language>(() => {
+    const saved = localStorage.getItem("orkestra.language");
+    return saved === "tr" ? "tr" : "en";
+  });
+
+  useEffect(() => {
+    document.documentElement.lang = language;
+    localStorage.setItem("orkestra.language", language);
+  }, [language]);
 
   const [agents, setAgents] = useState<Agent[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
@@ -171,6 +182,10 @@ function App() {
   const [cliStatus, setCliStatus] = useState<CliStatusResponse | null>(null);
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [briefOpen, setBriefOpen] = useState(false);
+  const [briefText, setBriefText] = useState("");
+  const [briefMeta, setBriefMeta] = useState<string | null>(null);
+  const [briefLoading, setBriefLoading] = useState(false);
 
   const online = Boolean(cliStatus);
   const agentOptions = useMemo(() => agents.filter((agent) => agent.enabled), [agents]);
@@ -178,17 +193,17 @@ function App() {
     () => cliStatus?.tools.filter((tool) => tool.authenticated && tool.quotaOk) ?? [],
     [cliStatus]
   );
-  // Tek ajan modunda seçilebilecek doğrulanmış CLI'lar.
+  // Tek ajan modunda seÃ§ilebilecek doÄŸrulanmÄ±ÅŸ CLI'lar.
   const cliOptions = useMemo(
     () => verifiedTools.map((tool) => tool.id as DebateParticipant),
     [verifiedTools]
   );
   const multiAvailable = verifiedTools.length > 1;
 
-  // Gönderilecek planner moddan türetilir.
+  // GÃ¶nderilecek planner moddan tÃ¼retilir.
   const selectedPlanner: PlannerChoice = mode === "multi" ? "all" : mode === "debate" ? "debate" : singleCli;
 
-  // Tartışma katılımcıları varsayılan olarak tüm doğrulanmış CLI'lar.
+  // TartÄ±ÅŸma katÄ±lÄ±mcÄ±larÄ± varsayÄ±lan olarak tÃ¼m doÄŸrulanmÄ±ÅŸ CLI'lar.
   useEffect(() => {
     setDebateParticipants((current) => {
       const valid = verifiedTools.map((tool) => tool.id as DebateParticipant);
@@ -197,12 +212,12 @@ function App() {
     });
   }, [verifiedTools]);
 
-  // Seçili tek-ajan CLI'ı doğrulanmış değilse ilk geçerliye dön.
+  // SeÃ§ili tek-ajan CLI'Ä± doÄŸrulanmÄ±ÅŸ deÄŸilse ilk geÃ§erliye dÃ¶n.
   useEffect(() => {
     if (cliOptions.length && !cliOptions.includes(singleCli)) setSingleCli(cliOptions[0]);
   }, [cliOptions, singleCli]);
 
-  // Çoklu/Tartışma için en az iki CLI yoksa tek ajana dön.
+  // Ã‡oklu/TartÄ±ÅŸma iÃ§in en az iki No CLIsa tek ajana dÃ¶n.
   useEffect(() => {
     if (mode !== "single" && !multiAvailable) setMode("single");
   }, [mode, multiAvailable]);
@@ -222,7 +237,7 @@ function App() {
     setSelectedModel("default");
   }, [singleCli, mode]);
 
-  // Secili model limitliyse veya listede yoksa default'a don.
+  // Return to default if the selected model is limited or missing.
   useEffect(() => {
     const current = modelOptions.find((m) => m.id === selectedModel);
     if (!current || current.limited) setSelectedModel("default");
@@ -246,7 +261,7 @@ function App() {
     setConversations(loadConversations());
   }, []);
 
-  // Aktif sohbeti (en az bir kullanıcı mesajı varsa) localStorage'a kaydet.
+  // Aktif sohbeti (en az bir kullanÄ±cÄ± mesajÄ± varsa) localStorage'a kaydet.
   useEffect(() => {
     if (!messages.some((message) => message.role === "user")) return;
     const convo: StoredConversation = {
@@ -344,7 +359,7 @@ function App() {
       const res = await api.post<{ path: string; name: string }>("/api/upload", { name: file.name, dataUrl });
       setAttachments((current) => [...current, { path: res.path, name: res.name, preview: dataUrl }]);
     } catch (error) {
-      setNotice(`Görsel yüklenemedi: ${error instanceof Error ? error.message : String(error)}`);
+      setNotice(`GÃ¶rsel yÃ¼klenemedi: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -365,7 +380,7 @@ function App() {
         id: crypto.randomUUID(),
         role: "assistant",
         planner: isSummary ? "system" : ev.planner,
-        modelLabel: isSummary ? "Orkestra · Karar Özeti" : ev.modelLabel,
+        modelLabel: isSummary ? "Orkestra Â· Karar Ã–zeti" : ev.modelLabel,
         content: ev.content ?? "",
         createdAt: new Date().toISOString()
       };
@@ -381,13 +396,13 @@ function App() {
         }
       ]);
     } else if (ev.type === "error") {
-      setNotice(`${ev.modelLabel ?? "Sistem"}: ${ev.message ?? ""}`);
+      setNotice(`${ev.modelLabel ?? "System"}: ${ev.message ?? ""}`);
       setStreamItems((current) => [
         ...current,
         {
           id: crypto.randomUUID(),
-          source: ev.modelLabel ?? "Sistem",
-          type: "hata",
+          source: ev.modelLabel ?? "System",
+          type: "error",
           message: ev.message ?? "",
           createdAt: new Date().toISOString()
         }
@@ -407,7 +422,7 @@ function App() {
         effort: selectedEffort
       })
     });
-    if (!res.ok || !res.body) throw new Error(await res.text().catch(() => "Tartışma başlatılamadı."));
+    if (!res.ok || !res.body) throw new Error(await res.text().catch(() => "TartÄ±ÅŸma baÅŸlatÄ±lamadÄ±."));
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
@@ -422,7 +437,7 @@ function App() {
         try {
           appendDebateEvent(JSON.parse(line));
         } catch {
-          // Yarim/gecersiz satiri atla.
+          // Ignore partial or invalid lines.
         }
       }
     }
@@ -437,9 +452,9 @@ function App() {
     setChatInput("");
     setAttachments([]);
 
-    const messageToSend = content || "Ekli görseli incele.";
+    const messageToSend = content || "Ekli gÃ¶rseli incele.";
     const displayContent = pending.length
-      ? `${content}${content ? "\n\n" : ""}📎 ${pending.map((item) => item.name).join(", ")}`
+      ? `${content}${content ? "\n\n" : ""}ğŸ“ ${pending.map((item) => item.name).join(", ")}`
       : content;
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
@@ -453,7 +468,7 @@ function App() {
       ...current,
       {
         id: crypto.randomUUID(),
-        source: "Kullanıcı",
+        source: "KullanÄ±cÄ±",
         type: "chat",
         message: displayContent,
         createdAt: new Date().toISOString()
@@ -488,13 +503,13 @@ function App() {
       ]);
       if (response.action === "suggest_pipeline") setSuggestedPrompt(response.suggestedPrompt ?? content);
       if (response.error) {
-        setNotice(`Fallback kullanıldı. ${response.error}`);
+        setNotice(`Fallback kullanÄ±ldÄ±. ${response.error}`);
         setStreamItems((current) => [
           ...current,
           {
             id: crypto.randomUUID(),
-            source: "Sistem",
-            type: "hata",
+            source: "System",
+            type: "error",
             message: response.error ?? "",
             createdAt: new Date().toISOString()
           }
@@ -508,8 +523,8 @@ function App() {
           id: crypto.randomUUID(),
           role: "assistant",
           planner: "system",
-          modelLabel: "Sistem",
-          content: `Planlayıcı yanıt veremedi: ${text}`,
+          modelLabel: "System",
+          content: `PlanlayÄ±cÄ± yanÄ±t veremedi: ${text}`,
           createdAt: new Date().toISOString()
         }
       ]);
@@ -517,8 +532,8 @@ function App() {
         ...current,
         {
           id: crypto.randomUUID(),
-          source: "Sistem",
-          type: "hata",
+          source: "System",
+          type: "error",
           message: text,
           createdAt: new Date().toISOString()
         }
@@ -534,6 +549,34 @@ function App() {
     setEvents([]);
     setSuggestedPrompt(null);
     await refresh();
+  }
+
+  // Sohbetten Code Task Brief Ã¼retip dÃ¼zenleme modalÄ±nÄ± aÃ§ar.
+  async function createBrief() {
+    setBriefOpen(true);
+    setBriefLoading(true);
+    setBriefMeta(null);
+    try {
+      const res = await api.post<{ brief: string; planner: string; modelLabel: string }>("/api/brief", {
+        history: messages,
+        planner: "auto"
+      });
+      setBriefText(res.brief);
+      setBriefMeta(res.modelLabel);
+    } catch (error) {
+      setBriefText("");
+      setNotice(`Brief Ã¼retilemedi: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setBriefLoading(false);
+    }
+  }
+
+  function approveBrief() {
+    const text = briefText.trim();
+    if (!text) return;
+    setBriefOpen(false);
+    setSuggestedPrompt(null);
+    void startRun(text);
   }
 
   async function openRun(run: Run) {
@@ -559,7 +602,7 @@ function App() {
         setNotice(String((result as { message: unknown }).message));
       } else {
         const updated = result as CliToolStatus;
-        setNotice(`${displayToolName(tool.id)}: ${actionLabel(action)} tamamlandı. Durum: ${statusText(updated)}.`);
+        setNotice(`${displayToolName(tool.id)}: ${actionLabel(action)} tamamlandÄ±. Durum: ${statusText(updated)}.`);
       }
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
@@ -578,18 +621,18 @@ function App() {
           <button
             className="iconButton themeToggle"
             onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
-            title={theme === "light" ? "Koyu Temaya Geç" : "Açık Temaya Geç"}
+            title={theme === "light" ? "Koyu Temaya GeÃ§" : "AÃ§Ä±k Temaya GeÃ§"}
             style={{ width: "32px", height: "32px", padding: 0 }}
           >
             {theme === "light" ? <Moon size={16} /> : <Sun size={16} />}
           </button>
           <div className="languageSwitch">
-            <button className="active">TR</button>
-            <button>EN</button>
+            <button className={language === "en" ? "active" : ""} onClick={() => setLanguage("en")}>EN</button>
+            <button className={language === "tr" ? "active" : ""} onClick={() => setLanguage("tr")}>TR</button>
           </div>
           <div className={`connectionPill ${online ? "online" : "offline"}`}>
             <span />
-            {online ? "Bağlı" : "Bağlı değil"}
+            {online ? "BaÄŸlÄ±" : "BaÄŸlÄ± deÄŸil"}
           </div>
         </div>
       </header>
@@ -648,7 +691,7 @@ function App() {
               setSuggestedPrompt(null);
               setAttachments([]);
             }}
-            onStartPipeline={(prompt) => void startRun(prompt)}
+            onCreateBrief={() => void createBrief()}
             onDismissPipeline={() => setSuggestedPrompt(null)}
           />
           </div>
@@ -657,13 +700,47 @@ function App() {
             onPointerDown={onResizeStart}
             onPointerMove={onResizeMove}
             onPointerUp={onResizeEnd}
-            title="Sürükleyerek yeniden boyutlandır"
+            title="SÃ¼rÃ¼kleyerek yeniden boyutlandÄ±r"
           >
             <span />
           </div>
           <StreamPanel items={streamItems} onClear={() => setStreamItems([])} />
         </section>
       </section>
+
+      {briefOpen && (
+        <div className="briefOverlay" onMouseDown={() => setBriefOpen(false)}>
+          <div className="briefDialog" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="briefHead">
+              <strong>Code Task Brief</strong>
+              <span className="briefMeta">{briefLoading ? "Ãœretiliyorâ€¦" : briefMeta ? `${briefMeta} Ã¼retti Â· dÃ¼zenleyebilirsin` : ""}</span>
+              <button className="iconButton" onClick={() => setBriefOpen(false)} title="Kapat">
+                <X size={16} />
+              </button>
+            </div>
+            <textarea
+              className="briefText"
+              value={briefLoading ? "Brief Ã¼retiliyor, lÃ¼tfen bekleyinâ€¦" : briefText}
+              readOnly={briefLoading}
+              onChange={(event) => setBriefText(event.target.value)}
+              placeholder="Brief burada gÃ¶rÃ¼necekâ€¦"
+            />
+            <div className="briefActions">
+              <button onClick={() => void createBrief()} disabled={briefLoading}>
+                <RefreshCw size={15} />
+                Newden Ãœret
+              </button>
+              <div className="briefActionsRight">
+                <button onClick={() => setBriefOpen(false)}>Ä°ptal</button>
+                <button className="primary" onClick={approveBrief} disabled={briefLoading || !briefText.trim()}>
+                  <Play size={15} />
+                  Onayla ve Code'a Aktar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {notice && <div className="toast">{notice}</div>}
     </main>
@@ -687,9 +764,9 @@ function AgentCenter({
       <div className="panelTitle split">
         <span>
           <Zap size={17} />
-          Ajan Merkezi
+          Agent Center
         </span>
-        <button className="iconButton" onClick={onRefresh} title="Yenile">
+        <button className="iconButton" onClick={onRefresh} title="Refresh">
           <RefreshCw size={15} />
         </button>
       </div>
@@ -704,34 +781,36 @@ function AgentCenter({
             {tool.lastError && <small>{tool.lastError}</small>}
               <UsageBars usage={tool.usage} />
               {tool.modelOptions?.length ? (
-                <small>{tool.modelOptions.length} model • {tool.modelOptions.filter((m) => m.limited).length} limitli</small>
+                <small>{tool.modelOptions.length} model â€¢ {tool.modelOptions.filter((m) => m.limited).length} limited</small>
               ) : null}
             </div>
             <div className="agentActions">
               <button onClick={() => onAction(tool, "test")}>Test</button>
               {tool.authenticated ? (
                 <button className="danger" onClick={() => onAction(tool, "logout")}>
-                  Çıkış
+                  Ã‡Ä±kÄ±ÅŸ
                 </button>
               ) : (
                 <button className="login" onClick={() => onAction(tool, "login")}>
-                  Giriş
+                  GiriÅŸ
                 </button>
               )}
             </div>
           </article>
         ))}
-        {!tools.length && <p className="muted">CLI durumu okunuyor...</p>}
+        {!tools.length && <p className="muted">Reading CLI status...</p>}
 
         <article className="agentCard compact">
           <div className="agentIcon git">
-            <GitBranch size={17} />
+            <svg fill="currentColor" viewBox="0 0 24 24" width="20" height="20" style={{ flex: "none", display: "block" }}>
+              <path d="M23.384 11.41L12.59.616a1.686 1.686 0 00-2.388 0L8.03 2.79l2.766 2.766a1.71 1.71 0 011.848.367 1.724 1.724 0 01.425 1.712l2.775 2.775a1.724 1.724 0 011.712.425 1.71 1.71 0 01-.426 2.628c-.562.184-1.242.052-1.712-.418a1.72 1.72 0 01-.425-1.712l-2.775-2.775v5.153a1.712 1.712 0 11-1.077 0V9.33L8.344 6.3a1.724 1.724 0 01-1.21.346 1.712 1.712 0 01-1.212-.367L2.156 10.04a1.712 1.712 0 01.366 1.21 1.716 1.716 0 01-.366 1.215v5.152a1.712 1.712 0 11-1.078 0v-5.152a1.712 1.712 0 01.367-1.215l2.78-2.78a1.71 1.71 0 011.848-.367l2.784-2.784a1.686 1.686 0 00-2.388 0L.616 11.41a1.686 1.686 0 000 2.388l10.795 10.795a1.686 1.686 0 002.388 0l10.795-10.795a1.686 1.686 0 000-2.388z"/>
+            </svg>
           </div>
           <div className="agentInfo">
             <strong>Git</strong>
-            <span>{gitStatus ? "Hazır" : "Bekleniyor"}</span>
+            <span>{gitStatus ? "HazÄ±r" : "Waiting"}</span>
           </div>
-          <div className="statusBadge ready">{gitStatus?.hasRemote ? "Remote" : "Yerel"}</div>
+          <div className="statusBadge ready">{gitStatus?.hasRemote ? "Remote" : "Local"}</div>
         </article>
       </div>
     </section>
@@ -758,7 +837,7 @@ function RolePanel({ agents }: { agents: Agent[] }) {
     <section className="glassPanel">
       <div className="panelTitle">
         <Settings2 size={17} />
-        <span>Roller</span>
+        <span>Roles</span>
       </div>
       {roles.map((role) => (
         <label className="roleSelect" key={role}>
@@ -769,7 +848,7 @@ function RolePanel({ agents }: { agents: Agent[] }) {
           >
             {agents.map((agent) => (
               <option key={agent.id} value={agent.id}>
-                {agent.name} · {roleLabel(agent.role)}
+                {agent.name} Â· {roleLabel(agent.role)}
               </option>
             ))}
           </select>
@@ -777,7 +856,7 @@ function RolePanel({ agents }: { agents: Agent[] }) {
       ))}
       <button className="resetButton">
         <RotateCcw size={14} />
-        Sıfırla
+        SÄ±fÄ±rla
       </button>
     </section>
   );
@@ -797,7 +876,7 @@ function RunPanel({
     <section className="glassPanel runPanel">
       <div className="panelTitle">
         <Circle size={15} />
-        <span>Geçmiş</span>
+        <span>GeÃ§miÅŸ</span>
       </div>
       <div className="runList">
         {runs.slice(0, 5).map((run) => (
@@ -844,7 +923,7 @@ function ChatPanel({
   onDeleteConversation,
   onSend,
   onClear,
-  onStartPipeline,
+  onCreateBrief,
   onDismissPipeline
 }: {
   messages: ChatMessage[];
@@ -879,7 +958,7 @@ function ChatPanel({
   onDeleteConversation: (id: string) => void;
   onSend: (text?: string) => void;
   onClear: () => void;
-  onStartPipeline: (prompt: string) => void;
+  onCreateBrief: () => void;
   onDismissPipeline: () => void;
 }) {
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -970,13 +1049,13 @@ function ChatPanel({
       <div className="chatHeader">
         <div className="panelTitle">
           <MessageCircle size={18} />
-          <span>Planlayıcı Sohbet</span>
+          <span>PlanlayÄ±cÄ± Sohbet</span>
           <strong>{plannerLabels[selectedPlanner]}</strong>
         </div>
         <div className="chatTools">
-          <button className="ghostButton" onClick={onNewChat} title="Yeni sohbet">
+          <button className="ghostButton" onClick={onNewChat} title="New chat">
             <Plus size={15} />
-            Yeni
+            New
           </button>
           <button
             className="ghostButton"
@@ -984,13 +1063,13 @@ function ChatPanel({
               setHistoryQuery("");
               setShowHistory(true);
             }}
-            title="Geçmiş sohbetler"
+            title="GeÃ§miÅŸ sohbetler"
           >
             <History size={15} />
-            Geçmiş
+            GeÃ§miÅŸ
           </button>
-          <button className="ghostButton" onClick={onClear} title="Sohbeti temizle">
-            Temizle
+          <button className="ghostButton" onClick={onClear} title="Clear chat">
+            Clear
           </button>
         </div>
       </div>
@@ -1012,7 +1091,7 @@ function ChatPanel({
           <article className="chatBubble assistant thinking">
             <div className="messageMeta">
               <Sparkles size={14} />
-              <span>{plannerLabels[selectedPlanner]} düşünüyor</span>
+              <span>{plannerLabels[selectedPlanner]} dÃ¼ÅŸÃ¼nÃ¼yor</span>
             </div>
             <div className="typingDots">
               <span />
@@ -1024,15 +1103,15 @@ function ChatPanel({
         {suggestedPrompt && (
           <div className="pipelineCard">
             <div>
-              <strong>Proje algılandı</strong>
-              <p>{suggestedPrompt}</p>
+              <strong>Proje algÄ±landÄ±</strong>
+              <p>Sohbeti yapÄ±landÄ±rÄ±lmÄ±ÅŸ bir gÃ¶reve (Code Task Brief) dÃ¶nÃ¼ÅŸtÃ¼rÃ¼p kod aÅŸamasÄ±na geÃ§ebilirsin.</p>
             </div>
             <div className="pipelineActions">
-              <button className="primary" onClick={() => onStartPipeline(suggestedPrompt)}>
+              <button className="primary" onClick={onCreateBrief}>
                 <Play size={16} />
-                Kod Aşamasına Geç
+                Brief OluÅŸtur
               </button>
-              <button onClick={onDismissPipeline}>Sohbete Devam</button>
+              <button onClick={onDismissPipeline}>Continue chat</button>
             </div>
           </div>
         )}
@@ -1053,8 +1132,8 @@ function ChatPanel({
                 {item === "single" && <Bot size={15} />}
                 {item === "multi" && <Users size={15} />}
                 {item === "debate" && <Swords size={15} />}
-                {modeMeta[item].label} Modu
-                <span className="modeTip">{disabled ? "En az iki doğrulanmış CLI gerekli." : modeMeta[item].desc}</span>
+                {modeMeta[item].label} Mode
+                <span className="modeTip">{disabled ? "En az iki doÄŸrulanmÄ±ÅŸ CLI gerekli." : modeMeta[item].desc}</span>
               </button>
             );
           })}
@@ -1073,7 +1152,7 @@ function ChatPanel({
               ))}
             </div>
             <label className="roundsPicker">
-              Tur
+              Rounds
               <select value={debateRounds} onChange={(event) => onRoundsChange(Number(event.target.value))}>
                 <option value={1}>1</option>
                 <option value={2}>2</option>
@@ -1090,7 +1169,7 @@ function ChatPanel({
               <div className="attachmentChip" key={item.path}>
                 <img src={item.preview} alt={item.name} />
                 <span>{item.name}</span>
-                <button onClick={() => onRemoveImage(item.path)} title="Kaldır">
+                <button onClick={() => onRemoveImage(item.path)} title="KaldÄ±r">
                   <X size={13} />
                 </button>
               </div>
@@ -1116,11 +1195,11 @@ function ChatPanel({
                 <span key={index} style={{ animationDelay: `${(index % 7) * 0.09}s` }} />
               ))}
             </div>
-            <span className="voiceText">{liveTranscript || "Dinleniyor..."}</span>
-            <button className="iconRound voiceCancel" onClick={() => stopVoice(false)} title="İptal">
+            <span className="voiceText">{liveTranscript || "Listening..."}</span>
+            <button className="iconRound voiceCancel" onClick={() => stopVoice(false)} title="Ä°ptal">
               <X size={17} />
             </button>
-            <button className="iconRound sendCircle" onClick={() => stopVoice(true)} title="Gönder">
+            <button className="iconRound sendCircle" onClick={() => stopVoice(true)} title="GÃ¶nder">
               <ArrowUp size={18} />
             </button>
           </div>
@@ -1129,7 +1208,7 @@ function ChatPanel({
             <textarea
               className="composerInput"
               value={value}
-              placeholder="Bir şey sorun veya görev verin…  (Enter gönder · Shift+Enter yeni satır · Ctrl+V görsel yapıştır)"
+              placeholder="Bir ÅŸey sorun veya gÃ¶rev verinâ€¦  (Enter gÃ¶nder Â· Shift+Enter yeni satÄ±r Â· Ctrl+V gÃ¶rsel yapÄ±ÅŸtÄ±r)"
               onChange={(event) => onChange(event.target.value)}
               onPaste={(event) => {
                 const images = Array.from(event.clipboardData.items)
@@ -1150,7 +1229,7 @@ function ChatPanel({
             />
             <div className="composerBar">
               <div className="composerBarLeft">
-                <button className="iconRound" onClick={() => fileInputRef.current?.click()} title="Görsel ekle">
+                <button className="iconRound" onClick={() => fileInputRef.current?.click()} title="GÃ¶rsel ekle">
                   <Plus size={18} />
                 </button>
                 {mode === "single" && (
@@ -1158,10 +1237,10 @@ function ChatPanel({
                     className="pill"
                     value={cliOptions.includes(singleCli) ? singleCli : ""}
                     disabled={!cliOptions.length}
-                    title="Hangi CLI"
+                    title="Which CLI"
                     onChange={(event) => onSingleCliChange(event.target.value as DebateParticipant)}
                   >
-                    {!cliOptions.length && <option value="">CLI yok</option>}
+                    {!cliOptions.length && <option value="">No CLI</option>}
                     {cliOptions.map((id) => (
                       <option key={id} value={id}>
                         {plannerLabels[id]}
@@ -1179,7 +1258,7 @@ function ChatPanel({
                   {modelOptions.map((model) => (
                     <option key={model.id} value={model.id} disabled={model.limited}>
                       {model.label}
-                      {model.limited ? ` — limitli${model.resetsAt ? ` (${resetLabel(model.resetsAt)})` : ""}` : ""}
+                      {model.limited ? ` â€” limited${model.resetsAt ? ` (${resetLabel(model.resetsAt)})` : ""}` : ""}
                     </option>
                   ))}
                 </select>
@@ -1188,7 +1267,7 @@ function ChatPanel({
                   <select
                     className="pill"
                     value={selectedEffort}
-                    title="Muhakeme eforu"
+                    title="Reasoning effort"
                     onChange={(event) => onEffortChange(event.target.value as "low" | "medium" | "high")}
                   >
                     <option value="low">Low</option>
@@ -1199,7 +1278,7 @@ function ChatPanel({
               </div>
               <div className="composerBarRight">
                 {voiceSupported && (
-                  <button className="iconRound" onClick={startVoice} title="Sesle yaz">
+                  <button className="iconRound" onClick={startVoice} title="Voice input">
                     <Mic size={18} />
                   </button>
                 )}
@@ -1207,7 +1286,7 @@ function ChatPanel({
                   className="iconRound sendCircle"
                   disabled={(!value.trim() && !attachments.length) || thinking || !cliOptions.length}
                   onClick={() => onSend()}
-                  title="Gönder"
+                  title="GÃ¶nder"
                 >
                   <ArrowUp size={18} />
                 </button>
@@ -1226,7 +1305,7 @@ function ChatPanel({
               <input
                 autoFocus
                 value={historyQuery}
-                placeholder="Sohbetlerde ara…"
+                placeholder="Sohbetlerde araâ€¦"
                 onChange={(event) => {
                   setHistoryQuery(event.target.value);
                   setHistoryIndex(0);
@@ -1247,10 +1326,10 @@ function ChatPanel({
               />
             </div>
             <div className="historyList">
-              {flatConvos.length === 0 && <div className="historyEmpty">Eşleşen sohbet yok.</div>}
+              {flatConvos.length === 0 && <div className="historyEmpty">EÅŸleÅŸen sohbet yok.</div>}
               {activeConvo && (
                 <>
-                  <div className="historyGroup">Şu anki</div>
+                  <div className="historyGroup">Åu anki</div>
                   <HistoryRow
                     convo={activeConvo}
                     highlighted={historyIndex === 0}
@@ -1262,7 +1341,7 @@ function ChatPanel({
                   />
                 </>
               )}
-              {recentConvos.length > 0 && <div className="historyGroup">Son sohbetler</div>}
+              {recentConvos.length > 0 && <div className="historyGroup">Recent chats</div>}
               {recentConvos.map((convo, index) => {
                 const flatIndex = activeConvo ? index + 1 : index;
                 return (
@@ -1280,9 +1359,9 @@ function ChatPanel({
               })}
             </div>
             <div className="historyFooter">
-              <span>↑↓ gezin</span>
-              <span>↵ seç</span>
-              <span>Esc kapat</span>
+              <span>â†‘â†“ gezin</span>
+              <span>â†µ seÃ§</span>
+              <span>Esc close</span>
             </div>
           </div>
         </div>
@@ -1295,13 +1374,13 @@ function agoLabel(iso: string) {
   const t = Date.parse(iso);
   if (!Number.isFinite(t)) return "";
   const mins = Math.round((Date.now() - t) / 60000);
-  if (mins < 1) return "az önce";
-  if (mins < 60) return `${mins} dk önce`;
+  if (mins < 1) return "az Ã¶nce";
+  if (mins < 60) return `${mins} dk Ã¶nce`;
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours} sa önce`;
+  if (hours < 24) return `${hours} sa Ã¶nce`;
   const days = Math.floor(hours / 24);
-  if (days < 7) return `${days} gün önce`;
-  return `${Math.floor(days / 7)} hafta önce`;
+  if (days < 7) return `${days} gÃ¼n Ã¶nce`;
+  return `${Math.floor(days / 7)} hafta Ã¶nce`;
 }
 
 function HistoryRow({
@@ -1325,7 +1404,7 @@ function HistoryRow({
           event.stopPropagation();
           onDelete();
         }}
-        title="Sil"
+        title="Delete"
       >
         <Trash2 size={14} />
       </button>
@@ -1351,21 +1430,21 @@ function ConversationsPanel({
       <div className="panelTitle split">
         <span>
           <History size={17} />
-          Geçmiş Sohbetler
+          GeÃ§miÅŸ Sohbetler
         </span>
-        <button className="iconButton" onClick={onNew} title="Yeni sohbet">
+        <button className="iconButton" onClick={onNew} title="New chat">
           <Plus size={15} />
         </button>
       </div>
       <div className="conversationList">
-        {conversations.length === 0 && <small className="historyEmpty">Henüz kayıtlı sohbet yok.</small>}
+        {conversations.length === 0 && <small className="historyEmpty">HenÃ¼z kayÄ±tlÄ± sohbet yok.</small>}
         {conversations.map((convo) => (
           <div key={convo.id} className={`conversationItem${convo.id === activeId ? " active" : ""}`}>
             <button className="conversationOpen" onClick={() => onOpen(convo.id)}>
               <MessageCircle size={14} />
               <span>{convo.title}</span>
             </button>
-            <button className="conversationDelete" onClick={() => onDelete(convo.id)} title="Sil">
+            <button className="conversationDelete" onClick={() => onDelete(convo.id)} title="Delete">
               <Trash2 size={14} />
             </button>
           </div>
@@ -1407,14 +1486,14 @@ function StreamPanel({ items, onClear }: { items: StreamItem[]; onClear: () => v
         <span className="dot yellow" />
         <span className="dot green" />
         <strong>orkestra-stream</strong>
-        <button onClick={onClear}>Temizle</button>
+        <button onClick={onClear}>Clear</button>
       </div>
       <div className="streamTabs">
         <button
           className={activeTab === "all" ? "active" : ""}
           onClick={() => setActiveTab("all")}
         >
-          Tüm
+          TÃ¼m
         </button>
         <button
           className={activeTab === "claude" ? "active" : ""}
@@ -1438,7 +1517,7 @@ function StreamPanel({ items, onClear }: { items: StreamItem[]; onClear: () => v
           className={activeTab === "system" ? "active" : ""}
           onClick={() => setActiveTab("system")}
         >
-          Sistem
+          System
         </button>
       </div>
       <div className="streamBody">
@@ -1451,7 +1530,7 @@ function StreamPanel({ items, onClear }: { items: StreamItem[]; onClear: () => v
             </article>
           ))
         ) : (
-          <p>Log bekleniyor...</p>
+          <p>Waiting for logs...</p>
         )}
       </div>
       {totalPages > 1 && (
@@ -1460,14 +1539,14 @@ function StreamPanel({ items, onClear }: { items: StreamItem[]; onClear: () => v
             disabled={currentPage === 1}
             onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
           >
-            Önceki
+            Ã–nceki
           </button>
-          <span>Sayfa {currentPage} / {totalPages}</span>
+          <span>Page {currentPage} / {totalPages}</span>
           <button
             disabled={currentPage === totalPages}
             onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
           >
-            Sonraki
+            Next
           </button>
         </div>
       )}
@@ -1476,8 +1555,27 @@ function StreamPanel({ items, onClear }: { items: StreamItem[]; onClear: () => v
 }
 
 function iconForTool(id: CliToolStatus["id"]) {
-  if (id === "claude") return <Sun size={17} />;
-  if (id === "codex") return <Diamond size={16} />;
+  if (id === "claude") {
+    return (
+      <svg fill="currentColor" fillRule="evenodd" viewBox="0 0 24 24" width="18" height="18" style={{ flex: "none", display: "block" }}>
+        <path d="M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z" />
+      </svg>
+    );
+  }
+  if (id === "codex") {
+    return (
+      <svg fill="currentColor" fillRule="evenodd" viewBox="0 0 24 24" width="18" height="18" style={{ flex: "none", display: "block" }}>
+        <path d="M9.205 8.658v-2.26c0-.19.072-.333.238-.428l4.543-2.616c.619-.357 1.356-.523 2.117-.523 2.854 0 4.662 2.212 4.662 4.566 0 .167 0 .357-.024.547l-4.71-2.759a.797.797 0 00-.856 0l-5.97 3.473zm10.609 8.8V12.06c0-.333-.143-.57-.429-.737l-5.97-3.473 1.95-1.118a.433.433 0 01.476 0l4.543 2.617c1.309.76 2.189 2.378 2.189 3.948 0 1.808-1.07 3.473-2.76 4.163zM7.802 12.703l-1.95-1.142c-.167-.095-.239-.238-.239-.428V5.899c0-2.545 1.95-4.472 4.591-4.472 1 0 1.927.333 2.712.928L8.23 5.067c-.285.166-.428.404-.428.737v6.898zM12 15.128l-2.795-1.57v-3.33L12 8.658l2.795 1.57v3.33L12 15.128zm1.796 7.23c-1 0-1.927-.332-2.712-.927l4.686-2.712c.285-.166.428-.404.428-.737v-6.898l1.974 1.142c.167.095.238.238.238.428v5.233c0 2.545-1.974 4.472-4.614 4.472zm-5.637-5.303l-4.544-2.617c-1.308-.761-2.188-2.378-2.188-3.948A4.482 4.482 0 014.21 6.327v5.423c0 .333.143.571.428.738l5.947 3.449-1.95 1.118a.432.432 0 01-.476 0zm-.262 3.9c-2.688 0-4.662-2.021-4.662-4.519 0-.19.024-.38.047-.57l4.686 2.71c.286.167.571.167.856 0l5.97-3.448v2.26c0 .19-.07.333-.237.428l-4.543 2.616c-.619.357-1.356.523-2.117.523zm5.899 2.83a5.947 5.947 0 005.827-4.756C22.287 18.339 24 15.84 24 13.296c0-1.665-.713-3.282-1.998-4.448.119-.5.19-.999.19-1.498 0-3.401-2.759-5.947-5.946-5.947-.642 0-1.26.095-1.88.31A5.962 5.962 0 0010.205 0a5.947 5.947 0 00-5.827 4.757C1.713 5.447 0 7.945 0 10.49c0 1.666.713 3.283 1.998 4.448-.119.5-.19 1-.19 1.499 0 3.401 2.759 5.946 5.946 5.946.642 0 1.26-.095 1.88-.309a5.96 5.96 0 004.162 1.713z" />
+      </svg>
+    );
+  }
+  if (id === "antigravity" || id === "gemini") {
+    return (
+      <svg fill="currentColor" fillRule="evenodd" viewBox="0 0 24 24" width="18" height="18" style={{ flex: "none", display: "block" }}>
+        <path d="M20.616 10.835a14.147 14.147 0 01-4.45-3.001 14.111 14.111 0 01-3.678-6.452.503.503 0 00-.975 0 14.134 14.134 0 01-3.679 6.452 14.155 14.155 0 01-4.45 3.001c-.65.28-1.318.505-2.002.678a.502.502 0 000 .975c.684.172 1.35.397 2.002.677a14.147 14.147 0 014.45 3.001 14.112 14.112 0 013.679 6.453.502.502 0 00.975 0c.172-.685.397-1.351.677-2.003a14.145 14.145 0 013.001-4.45 14.113 14.113 0 016.453-3.678.503.503 0 000-.975 13.245 13.245 0 01-2.003-.678z" />
+      </svg>
+    );
+  }
   return <Sparkles size={17} />;
 }
 
@@ -1488,12 +1586,12 @@ function displayToolName(id: CliToolStatus["id"]) {
 }
 
 function statusText(tool: CliToolStatus) {
-  if (!tool.installed) return "Kurulu değil";
-  if (!tool.authenticated) return "Giriş gerekli";
-  if (!tool.quotaOk) return "Kota sorunu";
-  if (tool.responding) return "Yanıt veriyor";
-  if (tool.id === "antigravity") return "Gemini dogrulandi";
-  return "Doğrulandı";
+  if (!tool.installed) return "Kurulu deÄŸil";
+  if (!tool.authenticated) return "GiriÅŸ gerekli";
+  if (!tool.quotaOk) return "Quota issue";
+  if (tool.responding) return "YanÄ±t veriyor";
+  if (tool.id === "antigravity") return "Gemini verified";
+  return "DoÄŸrulandÄ±";
 }
 
 function UsageBars({ usage }: { usage?: CliToolStatus["usage"] }) {
@@ -1512,10 +1610,10 @@ function UsageBars({ usage }: { usage?: CliToolStatus["usage"] }) {
               style={{ width: `${window.usedPercent}%` }}
             />
           </div>
-          {window.resetsAt && <small className="usageReset">{resetLabel(window.resetsAt)} sıfırlanır</small>}
+          {window.resetsAt && <small className="usageReset">{resetLabel(window.resetsAt)} sÄ±fÄ±rlanÄ±r</small>}
         </div>
       ))}
-      {usage.stale && <small className="usageStale">⚠ veri eski — cligate güncellemesi bekleniyor</small>}
+      {usage.stale && <small className="usageStale">âš  veri eski â€” cligate gÃ¼ncellemesi bekleniyor</small>}
     </div>
   );
 }
@@ -1524,27 +1622,27 @@ function resetLabel(iso: string) {
   const t = Date.parse(iso);
   if (!Number.isFinite(t)) return "";
   const diffMs = t - Date.now();
-  if (diffMs <= 0) return "şimdi";
+  if (diffMs <= 0) return "ÅŸimdi";
   const mins = Math.round(diffMs / 60000);
-  if (mins < 60) return `${mins} dk sonra`;
+  if (mins < 60) return `${mins} min later`;
   const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours} sa ${mins % 60} dk sonra`;
+  if (hours < 24) return `${hours} sa ${mins % 60} min later`;
   const days = Math.floor(hours / 24);
-  return `${days} gün ${hours % 24} sa sonra`;
+  return `${days} gÃ¼n ${hours % 24} h later`;
 }
 
 function actionLabel(action: "login" | "logout" | "test") {
-  if (action === "login") return "giriş";
-  if (action === "logout") return "çıkış";
+  if (action === "login") return "giriÅŸ";
+  if (action === "logout") return "Ã§Ä±kÄ±ÅŸ";
   return "test";
 }
 
 function roleLabel(role: AgentRole) {
-  if (role === "planner") return "Planlayıcı";
-  if (role === "builder") return "Kodlayıcı";
-  if (role === "reviewer") return "Denetçi";
-  if (role === "fixer") return "Düzeltici";
-  return "Özel";
+  if (role === "planner") return "PlanlayÄ±cÄ±";
+  if (role === "builder") return "KodlayÄ±cÄ±";
+  if (role === "reviewer") return "DenetÃ§i";
+  if (role === "fixer") return "DÃ¼zeltici";
+  return "Ã–zel";
 }
 
 createRoot(document.getElementById("root")!).render(
@@ -1552,3 +1650,4 @@ createRoot(document.getElementById("root")!).render(
     <App />
   </React.StrictMode>
 );
+

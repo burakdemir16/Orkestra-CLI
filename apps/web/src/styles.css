@@ -210,7 +210,7 @@ button {
 }
 
 .appHeader {
-  height: 42px;
+  height: 58px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -235,7 +235,7 @@ button {
 }
 
 .logo {
-  height: 28px;
+  height: 42px;
   width: auto;
   object-fit: contain;
 }
@@ -1206,6 +1206,93 @@ textarea:focus {
 .ghostButton:hover {
   background: rgba(129, 140, 248, 0.14);
   border-color: rgba(129, 140, 248, 0.4);
+}
+
+.briefOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(2, 6, 18, 0.6);
+  backdrop-filter: blur(3px);
+}
+
+.briefDialog {
+  width: min(760px, 96vw);
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: #0e1426;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+}
+
+.briefHead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.briefHead strong {
+  font-size: 1.05rem;
+  color: #f8fafc;
+}
+
+.briefMeta {
+  flex: 1;
+  color: #64748b;
+  font-size: 0.78rem;
+}
+
+.briefText {
+  flex: 1;
+  min-height: 320px;
+  resize: vertical;
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.briefActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.briefActionsRight {
+  display: flex;
+  gap: 10px;
+}
+
+.briefActions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(148, 163, 184, 0.06);
+  color: #cbd5e1;
+  font-weight: 700;
+}
+
+.briefActions .primary {
+  border-color: transparent;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #fff;
+}
+
+.briefActions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .historyOverlay {
