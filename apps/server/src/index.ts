@@ -503,6 +503,44 @@ const mimeTypes: Record<string, string> = {
   ".woff": "font/woff", ".ttf": "font/ttf"
 };
 
+// Çalışma alanındaki giriş HTML dosyasını bulur (alt klasörlerde olabilir).
+function findEntryHtml(root: string): string | null {
+  const queue: string[] = [""];
+  let firstHtml: string | null = null;
+  while (queue.length) {
+    const rel = queue.shift()!;
+    const dir = join(root, rel);
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true, encoding: "utf8" });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+      const childRel = rel ? `${rel}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        queue.push(childRel);
+      } else if (entry.name.toLowerCase() === "index.html") {
+        return childRel; // index.html en yüksek öncelik
+      } else if (entry.name.toLowerCase().endsWith(".html") && !firstHtml) {
+        firstHtml = childRel;
+      }
+    }
+  }
+  return firstHtml;
+}
+
+// Önizleme giriş noktasını döndürür: { entry: "relatif/yol" } ya da 404.
+app.get<{ Params: { runId: string } }>("/preview-entry/:runId", async (request, reply) => {
+  const run = store.getRun(request.params.runId);
+  if (!run) return reply.code(404).send({ error: "Run not found" });
+  if (!existsSync(run.workspacePath)) return reply.code(404).send({ error: "Workspace not found" });
+  const entry = findEntryHtml(run.workspacePath);
+  if (!entry) return reply.code(404).send({ error: "No HTML entry" });
+  return reply.send({ entry });
+});
+
 app.get<{ Params: { runId: string; "*": string } }>("/preview/:runId/*", async (request, reply) => {
   const run = store.getRun(request.params.runId);
   if (!run) return reply.code(404).send({ error: "Run not found" });

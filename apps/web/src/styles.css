@@ -1116,6 +1116,75 @@ textarea:focus {
   cursor: not-allowed;
 }
 
+.stopCircle {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+}
+
+.stopCircle:hover:not(:disabled) {
+  filter: brightness(1.08);
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+}
+
+.runStatusBar {
+  margin-top: auto;
+  padding: 10px 12px;
+  border-top: 1px solid rgba(148, 163, 184, 0.14);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.runStatusTop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.runStatusDot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #64748b;
+  flex: none;
+}
+
+.runStatusBar.running .runStatusDot,
+.runStatusBar.queued .runStatusDot {
+  background: #22c55e;
+}
+
+.runStatusBar.failed .runStatusDot {
+  background: #ef4444;
+}
+
+.runStatusBar.completed .runStatusDot {
+  background: #6366f1;
+}
+
+.runStatusDot.pulse {
+  animation: statusPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes statusPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5); }
+  50% { box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+}
+
+.runStatusFiles {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.runStatusStep {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .pill {
   min-height: 32px;
   padding: 4px 14px;
@@ -2667,6 +2736,187 @@ textarea:focus {
   color: #fff !important;
   background: linear-gradient(135deg, #ef4444, #dc2626) !important;
   border-color: transparent !important;
+}
+
+/* ─── Operatör Analiz Kartı ─── */
+.analysisCard {
+  margin: 8px 0;
+  border-radius: 14px;
+  border: 1px solid rgba(129, 140, 248, 0.35);
+  background: var(--card-bg);
+  overflow: hidden;
+}
+
+.analysisHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.18), rgba(139, 92, 246, 0.12));
+  color: var(--text-primary);
+}
+
+.analysisHead strong { font-size: 0.88rem; }
+.analysisSpacer { flex: 1; }
+
+.analysisCodeBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: none;
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: #fff;
+  font-size: 0.74rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.analysisGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+  padding: 10px;
+}
+
+.analysisActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.debateActionBar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 6px 0 2px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(99, 102, 241, 0.28);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(14, 165, 233, 0.07));
+}
+
+.debateActionHint {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.analysisActionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: var(--pill-bg);
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.15s, transform 0.05s;
+}
+
+.analysisActionBtn:hover { filter: brightness(1.08); }
+.analysisActionBtn:active { transform: translateY(1px); }
+
+.analysisActionBtn.operator {
+  border-color: transparent;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #fff;
+}
+
+.analysisActionBtn.team {
+  border-color: transparent;
+  background: linear-gradient(135deg, #0ea5e9, #2563eb);
+  color: #fff;
+}
+
+/* ─── Team Work modal ─── */
+.teamWorkDialog { max-width: 560px; }
+
+.teamWorkDesc {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.teamWorkSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.teamWorkLabel {
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.coderRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.coderRow > .pill:first-child { flex: 1; }
+
+.analysisSection {
+  border-radius: 10px;
+  border: 1px solid var(--border-soft);
+  border-left: 3px solid #6366f1;
+  background: var(--panel-bg);
+  padding: 8px 10px;
+}
+
+.analysisSection header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin-bottom: 5px;
+}
+
+.analysisSection ul {
+  margin: 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.analysisSection li {
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.analysisSection.consensus { border-left-color: #10b981; }
+.analysisSection.consensus header { color: #10b981; }
+.analysisSection.divergence { border-left-color: #ef4444; }
+.analysisSection.divergence header { color: #ef4444; }
+.analysisSection.partial { border-left-color: #3b82f6; }
+.analysisSection.partial header { color: #3b82f6; }
+.analysisSection.unique { border-left-color: #a855f7; }
+.analysisSection.unique header { color: #a855f7; }
+.analysisSection.blind { border-left-color: #f59e0b; }
+.analysisSection.blind header { color: #f59e0b; }
+.analysisSection.recommend { border-left-color: #6366f1; grid-column: 1 / -1; }
+.analysisSection.recommend header { color: #818cf8; }
+
+.analysisRaw {
+  margin: 0;
+  padding: 12px 14px;
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
 }
 
 /* ─── Inline run status pill ─── */

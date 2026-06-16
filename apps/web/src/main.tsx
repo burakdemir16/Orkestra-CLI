@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
+  AlertTriangle,
   ArrowUp,
   Bot,
   FileText,
   CheckCircle2,
   ChevronRight,
+  Target,
   Circle,
   Diamond,
   ExternalLink,
@@ -42,6 +44,7 @@ import {
   X,
   Settings2,
   Sparkles,
+  Square,
   SquareTerminal,
   Sun,
   Moon,
@@ -286,6 +289,22 @@ const uiText = {
     operatorNone: "No operator (summary)",
     operatorTitle: "Operator model that synthesizes the debate into a structured analysis",
     codeFromAnalysis: "Code from this analysis",
+    operatorBuild: "Let operator build",
+    teamWork: "Team work",
+    debateDoneHint: "Debate finished. How should we proceed?",
+    teamWorkTitle: "Team Work — Division of Labor",
+    teamWorkDesc: "No planner needed (the plan was made in the chat). Pick the coding agents and an optional reviewer.",
+    reviewerAgent: "Reviewer (checks fit to purpose)",
+    reviewerNone: "No reviewer",
+    coders: "Coding agents",
+    addCoder: "Add coder",
+    scopeBackend: "Backend",
+    scopeFrontend: "Frontend",
+    scopeGeneral: "General",
+    startTeamWork: "Start team work",
+    noCodersYet: "No coders added yet.",
+    pickAgent: "Pick agent",
+    operatorBuildStarted: "Operator started building the project.",
     approvePlan: "Approve & Run Team",
     taskTitle: "Task description",
     role: "Role",
@@ -296,6 +315,14 @@ const uiText = {
     roleBuilder: "Builder",
     roleReviewer: "Reviewer",
     roleFixer: "Fixer",
+    assignAgent: "Assign agent/model",
+    assignByRole: "Auto (by role)",
+    assignSpecificAgent: "Specific agent",
+    statusIdle: "Idle",
+    statusQueued: "Queued",
+    statusRunning: "Running",
+    statusCompleted: "Completed",
+    statusFailed: "Failed",
     activity: "Activity",
     changedFiles: "Files",
     noActivity: "No activity yet.",
@@ -464,6 +491,22 @@ const uiText = {
     operatorNone: "Operatör yok (özet)",
     operatorTitle: "Tartışmayı yapılandırılmış analize çeviren operatör modeli",
     codeFromAnalysis: "Bu analize göre kodla",
+    operatorBuild: "Operatöre Projeyi Yaptır",
+    teamWork: "Ekip Çalışması",
+    debateDoneHint: "Tartışma bitti. Nasıl ilerleyelim?",
+    teamWorkTitle: "Ekip Çalışması — İş Bölümü",
+    teamWorkDesc: "Planlayıcı yok (plan sohbette yapıldı). Kod yazacak ajanları ve isteğe bağlı bir denetçiyi seç.",
+    reviewerAgent: "Denetçi (amaca uygunluğu kontrol eder)",
+    reviewerNone: "Denetçi yok",
+    coders: "Kod yazacak ajanlar",
+    addCoder: "Ajan ekle",
+    scopeBackend: "Backend",
+    scopeFrontend: "Frontend",
+    scopeGeneral: "Genel",
+    startTeamWork: "Ekip çalışmasını başlat",
+    noCodersYet: "Henüz ajan eklenmedi.",
+    pickAgent: "Ajan seç",
+    operatorBuildStarted: "Operatör projeyi yapmaya başladı.",
     approvePlan: "Onayla ve Ekibi Başlat",
     taskTitle: "Görev açıklaması",
     role: "Rol",
@@ -474,6 +517,14 @@ const uiText = {
     roleBuilder: "Kodlayıcı",
     roleReviewer: "Denetçi",
     roleFixer: "Düzeltici",
+    assignAgent: "Ajan/model ata",
+    assignByRole: "Otomatik (role göre)",
+    assignSpecificAgent: "Belirli ajan",
+    statusIdle: "Beklemede",
+    statusQueued: "Sırada",
+    statusRunning: "Çalışıyor",
+    statusCompleted: "Tamamlandı",
+    statusFailed: "Hata",
     activity: "Aktivite",
     changedFiles: "Dosyalar",
     noActivity: "Henüz aktivite yok.",
@@ -650,6 +701,8 @@ function App() {
   const [planTasks, setPlanTasks] = useState<PlanTask[]>([]);
   const [planMeta, setPlanMeta] = useState<string | null>(null);
   const [planLoading, setPlanLoading] = useState(false);
+  // Code modunda tartışma bitince analiz + 3 aksiyon barı gösterilir.
+  const [codeDebateDone, setCodeDebateDone] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [fileDialogOpen, setFileDialogOpen] = useState(false);
   const [openFileTabs, setOpenFileTabs] = useState<OpenFileTab[]>([]);
@@ -782,6 +835,8 @@ function App() {
     setSuggestedPrompt(null);
     setAttachments([]);
     setNotice(null);
+    setCodeDebateDone(false);
+    setLastAnalysis(null);
     setConversationId(crypto.randomUUID());
     // Code modunda "Yeni" = yeni proje: kalıcı workspace ve aktif run sıfırlanır.
     if (isCodeView) {
@@ -888,6 +943,28 @@ function App() {
     return () => source.close();
   }, [activeRun?.id]);
 
+  // Run bitince/başarısız olunca chat'te kısa bir rapor mesajı (etkileşim için).
+  const reportedRunRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!activeRun || (activeRun.status !== "completed" && activeRun.status !== "failed")) return;
+    const key = `${activeRun.id}-${activeRun.status}`;
+    if (reportedRunRef.current === key) return;
+    reportedRunRef.current = key;
+    const totals = computeFileTotals(events);
+    const content =
+      activeRun.status === "completed"
+        ? (language === "tr"
+            ? `✅ Görev tamamlandı — ${totals.count} dosya düzenlendi (+${totals.adds} -${totals.dels}). Devam etmek için yeni bir talimat yazabilir, "İncele" ile değişiklikleri görebilir veya Önizleme açabilirsin.`
+            : `✅ Task completed — ${totals.count} files changed (+${totals.adds} -${totals.dels}). Type a new instruction to continue, review the changes, or open Preview.`)
+        : (language === "tr"
+            ? `⚠️ Görev durdu/başarısız: ${activeRun.summary ?? ""}. Bir not bırakıp tekrar başlatabilir veya yeni talimat verebilirsin.`
+            : `⚠️ Task stopped/failed: ${activeRun.summary ?? ""}. Leave a note and restart, or give a new instruction.`);
+    setMessages((current) => [
+      ...current,
+      { id: crypto.randomUUID(), role: "assistant", planner: "system", modelLabel: "Orkestra", content, createdAt: new Date().toISOString() }
+    ]);
+  }, [activeRun?.status, activeRun?.id]);
+
   async function addImage(file: File) {
     const dataUrl = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
@@ -991,6 +1068,8 @@ function App() {
         }
       }
     }
+    // Code modunda tartışma bitti → analiz altında 3 aksiyon barını göster.
+    if (activeView === "code") setCodeDebateDone(true);
   }
 
   async function sendChat(overrideText?: string) {
@@ -999,6 +1078,7 @@ function App() {
     if ((!content && !pending.length) || isThinking) return;
     setNotice(null);
     setSuggestedPrompt(null);
+    setCodeDebateDone(false);
     setChatInput("");
     setAttachments([]);
 
@@ -1120,7 +1200,19 @@ function App() {
         history: messages,
         planner: "auto"
       });
-      setPlanTasks(res.tasks ?? []);
+      // Her göreve, oturum açılmış (limitli olmayan) bir CLI+model'i varsayılan ata —
+      // kullanıcı modalda değiştirebilir. Tartışmadaki katılımcıları öncelikli dağıt.
+      const pool = participants.length
+        ? participants.filter((p) => {
+            const mo = participantSources.find((s) => s.cli === p.cli)?.models.find((m) => m.id === p.model);
+            return !mo?.limited;
+          })
+        : firstAvailableAgents();
+      const seeded = (res.tasks ?? []).map((t, i) => {
+        const pick = pool.length ? pool[i % pool.length] : undefined;
+        return { ...t, cli: pick?.cli, model: pick?.model };
+      });
+      setPlanTasks(seeded);
       setPlanMeta(res.modelLabel);
     } catch (error) {
       setPlanTasks([]);
@@ -1134,8 +1226,7 @@ function App() {
   async function approvePlan() {
     if (!planTasks.length) return;
     setPlanOpen(false);
-    const convo = messages.filter((m) => m.id !== "welcome" && m.content.trim());
-    const goal = convo.map((m) => m.content).join("\n\n") || planTasks.map((t) => t.title).join("; ");
+    const goal = goalFromConversation() || planTasks.map((t) => t.title).join("; ");
     const run = await api.post<Run>("/api/runs", {
       prompt: goal,
       tasks: planTasks,
@@ -1148,9 +1239,69 @@ function App() {
     await refresh();
   }
 
+  // Oturum açılmış, limitli olmayan tüm CLI+model adayları.
+  function firstAvailableAgents() {
+    return participantSources.flatMap((s) =>
+      s.models.filter((m) => !m.limited).map((m) => ({ cli: s.cli, model: m.id }))
+    );
+  }
+
+  // CLI+model için okunur etiket (Ekip Çalışması görev başlıklarında).
+  function labelForAgent(cli: DebateParticipant, model: string) {
+    const src = participantSources.find((s) => s.cli === cli);
+    const m = src?.models.find((mm) => mm.id === model);
+    return `${src?.label ?? cli}${m && m.id !== "default" ? ` · ${m.label}` : ""}`;
+  }
+
+  // Sohbet/analiz geçmişinden proje hedefini metin olarak çıkarır.
+  function goalFromConversation() {
+    const convo = messages.filter((m) => m.id !== "welcome" && m.content.trim());
+    const base = convo
+      .map((m) => `${m.role === "user" ? "Kullanıcı" : m.modelLabel || "Asistan"}: ${m.content}`)
+      .join("\n\n");
+    const analysis = lastAnalysis ? `\n\n--- OPERATÖR ANALİZİ ---\n${lastAnalysis}` : "";
+    return `${base}${analysis}`.trim();
+  }
+
+  // Operatör projeyi tek başına (kendi CLI+model'i ile) bir görev dahilinde yapar.
+  async function operatorBuild() {
+    if (!operatorSel) {
+      setNotice(language === "tr" ? "Önce bir operatör seçin." : "Pick an operator first.");
+      return;
+    }
+    const goal = goalFromConversation();
+    const tasks: PlanTask[] = [
+      {
+        id: "operator-build",
+        title: language === "tr"
+          ? "Sohbette/analizde kararlaştırılan projeyi baştan sona uygula"
+          : "Implement the project decided in the chat/analysis end to end",
+        cli: operatorSel.cli,
+        model: operatorSel.model,
+        role: "builder"
+      }
+    ];
+    const run = await api.post<Run>("/api/runs", {
+      prompt: goal || tasks[0].title,
+      tasks,
+      workspacePath: projectWorkspace ?? undefined
+    });
+    setActiveRun(run);
+    setProjectWorkspace(run.workspacePath);
+    setEvents([]);
+    setSuggestedPrompt(null);
+    setNotice(text.operatorBuildStarted);
+    await refresh();
+  }
+
   // Çalışan run'a ara talimat (steering notu) bırak.
   async function addRunNote(note: string) {
     if (!activeRun || !note.trim()) return;
+    // Notu chat'te kullanıcı mesajı olarak göster.
+    setMessages((current) => [
+      ...current,
+      { id: crypto.randomUUID(), role: "user", content: `📌 ${note.trim()}`, createdAt: new Date().toISOString() }
+    ]);
     try {
       await api.post(`/api/runs/${activeRun.id}/note`, { note: note.trim() });
     } catch (error) {
@@ -1376,7 +1527,6 @@ function App() {
                 onRefresh={() => void refresh()}
                 onAction={(tool, action) => void runCliAction(tool, action)}
               />
-              <RolePanel agents={agents} onRefresh={() => void refresh()} language={language} />
             </aside>
 
             <section className="centerColumn">
@@ -1448,12 +1598,6 @@ function App() {
                 onAction={(tool, action) => void runCliAction(tool, action)}
                 compact
               />
-              <RolePanel agents={agents} onRefresh={() => void refresh()} language={language} />
-              <RunPanel
-                runs={runs}
-                activeRun={activeRun}
-                onOpen={(run) => void openRun(run)}
-              />
             </aside>
 
             <div className="codeCenterCol">
@@ -1482,7 +1626,14 @@ function App() {
                   onClear={() => { setMessages([welcomeMessageFor(language)]); setSuggestedPrompt(null); setAttachments([]); }}
                   onCreateBrief={() => void createBrief()}
                   onCreatePlan={() => void createPlan()}
+                  onContinueChat={() => setNotice(null)}
+                  onOperatorBuild={() => void operatorBuild()}
+                  debateDone={codeDebateDone}
                   participantSources={participantSources}
+                  participants={participants}
+                  onParticipantsChange={setParticipants}
+                  debateRounds={debateRounds}
+                  onRoundsChange={setDebateRounds}
                   operatorSel={operatorSel}
                   onOperatorChange={setOperatorSel}
                   analysisReady={!!lastAnalysis}
@@ -1514,6 +1665,7 @@ function App() {
                 refreshKey={workspaceFileEventCount}
                 onOpenFile={(path) => void openFileInDialog(path)}
               />
+              <RunStatusBar run={activeRun} events={events} language={language} />
             </aside>
           </div>
         )}
@@ -1604,12 +1756,13 @@ function App() {
         <div className="briefOverlay" onMouseDown={() => setPlanOpen(false)}>
           <div className="briefDialog" onMouseDown={(event) => event.stopPropagation()}>
             <div className="briefHead">
-              <strong>{text.teamPlan}</strong>
+              <strong>{text.teamWork}</strong>
               <span className="briefMeta">{planLoading ? text.generating : planMeta ? `${planMeta} ${text.generatedEditable}` : ""}</span>
               <button className="iconButton" onClick={() => setPlanOpen(false)} title={text.close}>
                 <X size={16} />
               </button>
             </div>
+            <p className="teamWorkDesc">{text.teamWorkDesc}</p>
             <div className="planList">
               {planLoading && <p className="muted">{text.generating}</p>}
               {!planLoading && planTasks.map((task, index) => (
@@ -1622,14 +1775,37 @@ function App() {
                   />
                   <select
                     className="pill"
+                    value={task.cli ? `${task.cli}|${task.model ?? "default"}` : ""}
+                    title={text.assignAgent}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setPlanTasks((cur) => cur.map((t, i) => {
+                        if (i !== index) return t;
+                        if (!v) return { ...t, cli: undefined, model: undefined };
+                        const [cli, model] = v.split("|");
+                        return { ...t, agentId: undefined, cli, model };
+                      }));
+                    }}
+                  >
+                    <option value="">{text.assignByRole}</option>
+                    {participantSources.flatMap((s) =>
+                      s.models.map((m) => (
+                        <option key={`${s.cli}|${m.id}`} value={`${s.cli}|${m.id}`} disabled={m.limited}>
+                          {s.label}{m.id !== "default" ? ` · ${m.label}` : ""}{m.limited ? ` (${text.limited})` : ""}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                  <select
+                    className="pill"
                     value={task.role ?? "builder"}
                     title={text.role}
                     onChange={(e) => setPlanTasks((cur) => cur.map((t, i) => (i === index ? { ...t, role: e.target.value as AgentRole } : t)))}
                   >
-                    <option value="planner">{text.rolePlanner}</option>
                     <option value="builder">{text.roleBuilder}</option>
                     <option value="reviewer">{text.roleReviewer}</option>
                     <option value="fixer">{text.roleFixer}</option>
+                    <option value="planner">{text.rolePlanner}</option>
                   </select>
                   <input
                     className="planTaskFolder"
@@ -2451,6 +2627,142 @@ function ParticipantPicker({
         )}
         <button className="iconRound" onClick={add} disabled={!addCli} title={text.addParticipant}>
           <Plus size={15} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Sağ sütun altındaki canlı görev durum çubuğu: aktif mi, hangi adımda, kaç dosya.
+function RunStatusBar({ run, events, language }: { run: Run | null; events: RunEvent[]; language: Language }) {
+  const text = uiText[language];
+  const status = run?.status ?? "idle";
+  const active = status === "running" || status === "queued";
+  const fileEvents = events.filter((e) => e.type === "file_created" || e.type === "file_changed" || e.type === "file_deleted");
+  const touched = new Set(fileEvents.map((e) => e.message)).size;
+  const lastStep = [...events].reverse().find((e) => e.type === "agent_step")?.message ?? run?.activeStep ?? null;
+  const statusLabel: Record<string, string> = {
+    idle: text.statusIdle,
+    queued: text.statusQueued,
+    running: text.statusRunning,
+    completed: text.statusCompleted,
+    failed: text.statusFailed
+  };
+  return (
+    <div className={`runStatusBar ${status}`}>
+      <div className="runStatusTop">
+        <span className={`runStatusDot${active ? " pulse" : ""}`} />
+        <strong>{statusLabel[status] ?? status}</strong>
+        {touched > 0 && <span className="runStatusFiles">{touched} {text.changedFiles}</span>}
+      </div>
+      {active && lastStep && <div className="runStatusStep" title={lastStep}>{lastStep}</div>}
+    </div>
+  );
+}
+
+// Operatör analizini (## başlıklı Markdown) renkli/ikonlu kartlara ayırır.
+const ANALYSIS_THEMES: { match: RegExp; key: string; icon: any; tone: string }[] = [
+  { match: /ortak|shared|consensus|common/i, key: "ortak", icon: CheckCircle2, tone: "consensus" },
+  { match: /ayrış|disagree|divergen|çeliş/i, key: "ayri", icon: Swords, tone: "divergence" },
+  { match: /kısmi|partial/i, key: "kismi", icon: Users, tone: "partial" },
+  { match: /benzersiz|unique|özgün/i, key: "uniq", icon: Sparkles, tone: "unique" },
+  { match: /kör nokta|blind/i, key: "blind", icon: AlertTriangle, tone: "blind" },
+  { match: /öneril|recommend|yaklaşım|approach|sonuç/i, key: "rec", icon: Target, tone: "recommend" }
+];
+
+function themeFor(title: string) {
+  return ANALYSIS_THEMES.find((t) => t.match.test(title)) ?? { key: "x", icon: ChevronRight, tone: "default" };
+}
+
+function AnalysisCard({
+  content,
+  modelLabel,
+  language
+}: {
+  content: string;
+  modelLabel?: string;
+  language: Language;
+}) {
+  const text = uiText[language];
+  // "## Başlık\n gövde" bloklarına ayır.
+  const blocks = content
+    .split(/^\s*#{1,3}\s+/m)
+    .map((b) => b.trim())
+    .filter(Boolean)
+    .map((b) => {
+      const nl = b.indexOf("\n");
+      const title = (nl === -1 ? b : b.slice(0, nl)).trim();
+      const body = (nl === -1 ? "" : b.slice(nl + 1)).trim();
+      return { title, body };
+    })
+    .filter((b) => b.title && !/code task brief|operatör/i.test(b.title));
+
+  const renderBody = (body: string) =>
+    body
+      .split(/\r?\n/)
+      .map((line) => line.replace(/^[-*]\s+/, "").trim())
+      .filter(Boolean)
+      .map((line, i) => (
+        <li key={i}>{line.replace(/\*\*/g, "")}</li>
+      ));
+
+  return (
+    <div className="analysisCard">
+      <div className="analysisHead">
+        <Target size={15} />
+        <strong>{modelLabel ?? text.operatorAnalysis}</strong>
+      </div>
+      {blocks.length ? (
+        <div className="analysisGrid">
+          {blocks.map((b, i) => {
+            const theme = themeFor(b.title);
+            const Icon = theme.icon;
+            return (
+              <section className={`analysisSection ${theme.tone}`} key={i}>
+                <header>
+                  <Icon size={14} />
+                  <span>{b.title}</span>
+                </header>
+                <ul>{renderBody(b.body)}</ul>
+              </section>
+            );
+          })}
+        </div>
+      ) : (
+        <pre className="analysisRaw">{content}</pre>
+      )}
+    </div>
+  );
+}
+
+// Tartışma bitince çıkan 3 aksiyon barı: Sohbete Devam / Operatöre Yaptır / Ekip Çalışması.
+function DebateActionBar({
+  language,
+  onContinueChat,
+  onOperatorBuild,
+  onTeamWork
+}: {
+  language: Language;
+  onContinueChat: () => void;
+  onOperatorBuild: () => void;
+  onTeamWork: () => void;
+}) {
+  const text = uiText[language];
+  return (
+    <div className="debateActionBar">
+      <span className="debateActionHint">{text.debateDoneHint}</span>
+      <div className="analysisActions">
+        <button className="analysisActionBtn continue" onClick={onContinueChat}>
+          <MessageCircle size={14} />
+          {text.continueChat}
+        </button>
+        <button className="analysisActionBtn operator" onClick={onOperatorBuild}>
+          <Target size={14} />
+          {text.operatorBuild}
+        </button>
+        <button className="analysisActionBtn team" onClick={onTeamWork}>
+          <Users size={14} />
+          {text.teamWork}
         </button>
       </div>
     </div>
@@ -3521,7 +3833,9 @@ function CodeChatPanel({
   selectedEffort, onEffortChange, selectedDetailLevel, onDetailLevelChange,
   mode, onModeChange, multiAvailable, cliOptions, singleCli, onSingleCliChange,
   thinking, onModelChange, onChange, onSend, onClear, onCreateBrief, onCreatePlan, onStart,
-  participantSources, operatorSel, onOperatorChange, analysisReady,
+  onContinueChat, onOperatorBuild, debateDone,
+  participantSources, participants, onParticipantsChange, debateRounds, onRoundsChange,
+  operatorSel, onOperatorChange, analysisReady,
   runActive, onAddNote, onStopRun,
   attachments, onAddImage, onRemoveImage,
   conversations, activeConversationId, onOpenConversation, onDeleteConversation, onNewChat,
@@ -3550,7 +3864,14 @@ function CodeChatPanel({
   onClear: () => void;
   onCreateBrief: () => void;
   onCreatePlan: () => void;
+  onContinueChat: () => void;
+  onOperatorBuild: () => void;
+  debateDone: boolean;
   participantSources: { cli: DebateParticipant; label: string; models: ModelOption[] }[];
+  participants: { cli: DebateParticipant; model: string }[];
+  onParticipantsChange: (next: { cli: DebateParticipant; model: string }[]) => void;
+  debateRounds: number;
+  onRoundsChange: (n: number) => void;
   operatorSel: { cli: DebateParticipant; model: string } | null;
   onOperatorChange: (op: { cli: DebateParticipant; model: string } | null) => void;
   analysisReady: boolean;
@@ -3577,6 +3898,7 @@ function CodeChatPanel({
   const modeMeta = modeMetaByLanguage[language];
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const recognitionRef = useRef<any>(null);
   const [listening, setListening] = useState(false);
   const [briefOpen, setBriefOpen] = useState(false);
@@ -3647,25 +3969,9 @@ function CodeChatPanel({
             <FileText size={13} />
             Brief
           </button>
-          {analysisReady && (
-            <button className="ghostButton startButton" onClick={onCreatePlan} title={text.codeFromAnalysis}>
-              <Play size={13} />
-              {text.codeFromAnalysis}
-            </button>
-          )}
           <button className="ghostButton" onClick={onCreatePlan} title={text.teamPlanTitle}>
             <Users size={13} />
             {text.teamPlan}
-          </button>
-          {runActive && (
-            <button className="ghostButton stopButton" onClick={onStopRun} title={text.stop}>
-              <X size={13} />
-              {text.stop}
-            </button>
-          )}
-          <button className="ghostButton startButton" onClick={onStart} title={text.startRunTitle}>
-            <Play size={13} />
-            {text.startRun}
           </button>
         </div>
       </div>
@@ -3699,17 +4005,34 @@ function CodeChatPanel({
       )}
 
       <div className="codeChatMessages">
-        {messages.map((msg) => (
-          <article key={msg.id ?? `${msg.role}-${msg.createdAt}`} className={`chatBubble ${msg.role} compact`}>
-            {msg.role === "assistant" && (
-              <div className="messageMeta">
-                <Bot size={12} />
-                <span>{msg.modelLabel ?? "Orkestra"}</span>
-              </div>
-            )}
-            <pre>{msg.content}</pre>
-          </article>
-        ))}
+        {messages.map((msg) =>
+          msg.planner === "analysis" ? (
+            <AnalysisCard
+              key={msg.id ?? `${msg.role}-${msg.createdAt}`}
+              content={msg.content}
+              modelLabel={msg.modelLabel}
+              language={language}
+            />
+          ) : (
+            <article key={msg.id ?? `${msg.role}-${msg.createdAt}`} className={`chatBubble ${msg.role} compact`}>
+              {msg.role === "assistant" && (
+                <div className="messageMeta">
+                  <Bot size={12} />
+                  <span>{msg.modelLabel ?? "Orkestra"}</span>
+                </div>
+              )}
+              <pre>{msg.content}</pre>
+            </article>
+          )
+        )}
+        {debateDone && !runActive && (
+          <DebateActionBar
+            language={language}
+            onContinueChat={() => { onContinueChat(); composerRef.current?.focus(); composerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }); }}
+            onOperatorBuild={onOperatorBuild}
+            onTeamWork={onCreatePlan}
+          />
+        )}
         {run && <AgentActivitySection events={events} language={language} onOpenFile={onOpenFile} />}
         {thinking && (
           <article className="chatBubble assistant thinking compact">
@@ -3790,6 +4113,26 @@ function CodeChatPanel({
             <option value="high">{text.detailHigh}</option>
           </select>
         </div>
+        {(mode === "debate" || mode === "multi") && (
+          <div className="debateControls compact">
+            <ParticipantPicker
+              language={language}
+              sources={participantSources}
+              participants={participants}
+              onChange={onParticipantsChange}
+            />
+            {mode === "debate" && (
+              <label className="roundsPicker">
+                {text.rounds}
+                <select value={debateRounds} onChange={(e) => onRoundsChange(Number(e.target.value))}>
+                  <option value={1}>1</option>
+                  <option value={2}>2</option>
+                  <option value={3}>3</option>
+                </select>
+              </label>
+            )}
+          </div>
+        )}
         {attachments.length > 0 && (
           <div className="attachmentRow">
             {attachments.map((item) => (
@@ -3819,6 +4162,7 @@ function CodeChatPanel({
             <Plus size={16} />
           </button>
           <textarea
+            ref={composerRef}
             className="codeChatInput"
             value={value}
             placeholder={runActive ? text.steeringPlaceholder : text.composerPlaceholder}
@@ -3849,14 +4193,23 @@ function CodeChatPanel({
             </button>
           )}
           {runActive ? (
-            <button
-              className="iconRound sendCircle"
-              disabled={!value.trim()}
-              onClick={() => { if (value.trim()) { onAddNote(value); onChange(""); } }}
-              title={text.addNote}
-            >
-              <ArrowUp size={16} />
-            </button>
+            value.trim() ? (
+              <button
+                className="iconRound sendCircle"
+                onClick={() => { onAddNote(value); onChange(""); }}
+                title={text.addNote}
+              >
+                <ArrowUp size={16} />
+              </button>
+            ) : (
+              <button
+                className="iconRound sendCircle stopCircle"
+                onClick={() => onStopRun()}
+                title={text.stop}
+              >
+                <Square size={14} />
+              </button>
+            )
           ) : (
             <button
               className="iconRound sendCircle"
@@ -3887,27 +4240,40 @@ function CodeChatPanel({
 function BrowserPreview({ run, language, onClose }: { run: Run | null; language: Language; onClose: () => void }) {
   const text = uiText[language];
   const [refreshKey, setRefreshKey] = useState(0);
+  const [entry, setEntry] = useState<string | null>(null);
   const [previewAvailable, setPreviewAvailable] = useState(false);
   const serverOrigin = `${window.location.protocol}//${window.location.hostname}:8787`;
-  const previewUrl = run ? `${serverOrigin}/preview/${run.id}/index.html` : null;
+  const previewUrl = run && entry ? `${serverOrigin}/preview/${run.id}/${entry}` : null;
 
   useEffect(() => {
     let cancelled = false;
-    if (!previewUrl) {
+    if (!run) {
+      setEntry(null);
       setPreviewAvailable(false);
       return;
     }
-    fetch(previewUrl, { cache: "no-store" })
-      .then((response) => {
-        if (!cancelled) setPreviewAvailable(response.ok);
+    fetch(`${serverOrigin}/preview-entry/${run.id}`, { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { entry?: string } | null) => {
+        if (cancelled) return;
+        if (data?.entry) {
+          setEntry(data.entry);
+          setPreviewAvailable(true);
+        } else {
+          setEntry(null);
+          setPreviewAvailable(false);
+        }
       })
       .catch(() => {
-        if (!cancelled) setPreviewAvailable(false);
+        if (!cancelled) {
+          setEntry(null);
+          setPreviewAvailable(false);
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [previewUrl, refreshKey]);
+  }, [run?.id, serverOrigin, refreshKey]);
 
   return (
     <section className="glassPanel browserPreview">

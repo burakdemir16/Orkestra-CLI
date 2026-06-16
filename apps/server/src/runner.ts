@@ -86,10 +86,14 @@ export class Runner {
 
   private async runTeamTask(run: Run, task: PlanTask, done: Map<string, string>): Promise<string> {
     const role = task.role ?? "builder";
-    // Birincil: belirli ajan ya da role uygun (limitli değilse onu seç). Limitli ajan
-    // tek seçenekse yine de zincir başı yap ki yedeğine devredilebilsin.
+    // Birincil ajan çözümü:
+    // 1) task.agentId → konfigüre ajan
+    // 2) task.cli → doğrudan oturum açılmış CLI'dan ad-hoc ajan (planlayıcısız ekip akışı)
+    // 3) role → role uygun konfigüre ajan
     const primary =
-      (task.agentId ? this.store.getAgent(task.agentId) : this.pickAgent(role)) ??
+      (task.agentId ? this.store.getAgent(task.agentId) : undefined) ??
+      (task.cli ? adHocAgent(task.cli, task.model, role) : undefined) ??
+      this.pickAgent(role) ??
       this.store.listAgents().find((a) => a.enabled && a.role === role);
     if (!primary || !primary.enabled) {
       this.emit(run.id, "failed", `Göreve ajan atanamadı: ${task.title}`);
@@ -417,6 +421,41 @@ function spawnCommand(
     shell: true,
     stdio: ["pipe", "pipe", "pipe"]
   });
+}
+
+// Oturum açılmış bir CLI (claude | codex | agy) için, konfigüre ajan olmadan
+// doğrudan çalıştırılabilen geçici (ad-hoc) ajan üretir. Model verilmişse flag olarak geçer.
+// Prompt stdin'den verildiği için argsTemplate'e {prompt} koymaya gerek yok.
+function adHocAgent(cli: string, model: string | undefined, role: string): Agent | undefined {
+  const m = model && model !== "default" ? model : undefined;
+  let command = "";
+  let argsTemplate: string[] = [];
+  if (cli === "claude") {
+    command = "claude";
+    argsTemplate = m ? ["--model", m, "-p", "--permission-mode", "acceptEdits"] : ["-p", "--permission-mode", "acceptEdits"];
+  } else if (cli === "codex") {
+    command = "codex";
+    argsTemplate = m ? ["exec", "-m", m, "--dangerously-bypass-approvals-and-sandbox"] : ["exec", "--dangerously-bypass-approvals-and-sandbox"];
+  } else if (cli === "agy") {
+    command = "agy";
+    argsTemplate = m ? ["--model", m, "-p", "--dangerously-skip-permissions"] : ["-p", "--dangerously-skip-permissions"];
+  } else {
+    return undefined;
+  }
+  const labels: Record<string, string> = { claude: "Claude", codex: "Codex", agy: "Antigravity" };
+  return {
+    id: `adhoc-${cli}-${m ?? "default"}`,
+    name: `${labels[cli] ?? cli}${m ? ` · ${m}` : ""}`,
+    role: (role as Agent["role"]) ?? "builder",
+    command,
+    argsTemplate,
+    enabled: true,
+    timeoutSeconds: 600,
+    fallbackAgentIds: [],
+    limitPatterns: ["limit", "quota", "rate_limit", "429", "exhausted"],
+    status: "available",
+    lastLimitedAt: null
+  };
 }
 
 function quoteWindowsShellArg(value: string) {

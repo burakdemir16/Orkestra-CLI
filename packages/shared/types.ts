@@ -70,8 +70,10 @@ export interface GitStatus {
 export interface PlanTask {
   id: string;
   title: string;
-  agentId?: string; // belirli ajan
-  role?: AgentRole; // agentId yoksa rol üzerinden seçilir
+  agentId?: string; // belirli (konfigüre) ajan
+  cli?: string; // doğrudan oturum açılmış CLI (claude | codex | agy) — agentId yoksa ad-hoc ajan kurulur
+  model?: string; // CLI için model (varsa flag olarak geçer)
+  role?: AgentRole; // agentId/cli yoksa rol üzerinden seçilir
   folder?: string; // alt-klasör (paralel görevlerin çakışmaması için)
   dependsOn?: string[]; // önce bitmesi gereken görev id'leri
 }
