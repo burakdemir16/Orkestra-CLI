@@ -2001,7 +2001,7 @@ function App() {
             </aside>
 
             <section className="centerColumn">
-              <div className="chatWrap" style={{ height: chatHeight }}>
+              <div className="chatWrap">
                 <ChatPanel
                   language={language}
                   messages={messages}
@@ -2046,16 +2046,6 @@ function App() {
                   onDismissPipeline={() => setSuggestedPrompt(null)}
                 />
               </div>
-              <div
-                className="rowResizer"
-                onPointerDown={onResizeStart}
-                onPointerMove={onResizeMove}
-                onPointerUp={onResizeEnd}
-                title={text.dragResize}
-              >
-                <span />
-              </div>
-              <StreamPanel items={streamItems} onClear={() => setStreamItems([])} language={language} />
             </section>
           </>
         ) : (
@@ -4855,7 +4845,7 @@ function CodeChatPanel({
                 } else onSend();
               }
             }}
-            rows={2}
+            rows={1}
           />
           {voiceSupported && (
             <button className={`iconRound${listening ? " recording" : ""}`} onClick={toggleVoice} title={text.voiceInput}>
