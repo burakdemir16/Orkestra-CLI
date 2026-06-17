@@ -1,6 +1,7 @@
 import { execFile, spawn } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import type { ChatMessage, CliToolStatus, EffortLevel } from "../../../packages/shared/types";
 import { getModelOptions, getUsageFor } from "./usage";
@@ -225,16 +226,23 @@ function localBriefTemplate(history: ChatMessage[], message?: string) {
 // ----- Ekip Planı (Faz 4) -----
 // Plancı, projeyi alt-görevlere böler ve JSON olarak döner. Her görev: id, title,
 // role (planner/builder/reviewer/fixer), folder (paralel izolasyon), dependsOn.
-export async function generatePlan(history: ChatMessage[], message?: string, preferred?: PlannerSelection) {
+export async function generatePlan(
+  history: ChatMessage[],
+  message?: string,
+  preferred?: PlannerSelection,
+  analysis?: string,
+  model?: string
+) {
+  // Fazları İCRA EDEN ajan belirler: operatörde operatör, ekipte ilgili ajan (preferred+model).
   const order: PlannerId[] =
     preferred && preferred !== "auto" && preferred !== "all" ? [preferred] : ["codex", "claude", "antigravity"];
   for (const planner of order) {
     try {
       await assertPlannerReady(planner);
-      const raw = await callPlannerRaw(planner, buildPlanPrompt(history, message));
+      const raw = await callPlannerRaw(planner, buildPlanPrompt(history, message, analysis), model);
       const tasks = parsePlanTasks(cleanPlannerOutput(raw));
       if (tasks.length) {
-        return { tasks, planner, modelLabel: modelLabel(planner) };
+        return { tasks, planner, modelLabel: model && model !== "default" ? `${modelLabel(planner)} · ${model}` : modelLabel(planner) };
       }
     } catch {
       // sonraki ajana gec
@@ -249,24 +257,34 @@ export async function generatePlan(history: ChatMessage[], message?: string, pre
   };
 }
 
-function buildPlanPrompt(history: ChatMessage[], message?: string) {
+function buildPlanPrompt(history: ChatMessage[], message?: string, analysis?: string) {
   return [
-    "Sen Orkestra ekip plancısısın. Aşağıdaki projeyi paralel/sıralı çalıştırılabilecek ALT-GÖREVLERE böl.",
+    "Sen Orkestra ekip plancısısın. Aşağıdaki projeyi paralel/sıralı çalıştırılabilecek ALT-GÖREVLERE böl",
+    "VE mantıklı FAZLARA ayır. Kararlarını AŞAĞIDAKİ OPERATÖR ANALİZİNE dayandır.",
     "Çıktıyı SADECE geçerli JSON olarak ver (başka metin yok). Şema:",
-    '{ "tasks": [ { "id": "kisa-id", "title": "ne yapılacağı (kısa, net)", "role": "builder", "folder": "klasor-adi", "dependsOn": ["onceki-id"] } ] }',
+    '{ "tasks": [ { "id": "kisa-id", "title": "ne yapılacağı (kısa, net)", "role": "builder", "folder": "klasor-adi", "dependsOn": ["onceki-id"], "phase": 1 } ] }',
     "Kurallar:",
-    "- role yalnızca: planner | builder | reviewer | fixer.",
-    "- Paralel çalışabilecek bağımsız işler (ör. backend ve frontend) AYRI klasörlerde olsun (folder farklı).",
-    "- Bağımlı işler dependsOn ile belirtilsin (ör. backend, database'e bağlı).",
-    "- 2-6 görev yeterli; abartma. id'ler kısa ve benzersiz olsun.",
+    "- role yalnızca: builder | reviewer | fixer. (planner KULLANMA — plan zaten sende.)",
+    "- HER GÖREV SOMUT KOD ÜRETSİN. 'Mimari tanımla', 'proje yapısını belirle', 'dokümana yaz' gibi",
+    "  SADECE-DOKÜMAN / planlama görevleri YASAK. Her görev gerçek dosya/çalışan kod çıkarmalı.",
+    "- PARALELLİK: Her fazda mümkün olduğunca BAĞIMSIZ, AYRI KLASÖRLÜ görevler kur (ör. backend, frontend,",
+    "  veritabanı ayrı görevler) ki ajanlar AYNI ANDA çalışsın. Tek görevli faz kurmaktan kaçın.",
+    "- Bağımlı işler dependsOn ile belirtilsin (denetçi/düzeltici kodlayıcılardan SONRA).",
+    "- FAZLAMA (önemli): Projenin GERÇEK büyüklüğüne ve analizdeki kapsama göre karar ver.",
+    "  • KÜÇÜK / tek-oturumda biten iş → HEPSİNE phase=1 (tek faz, gereksiz checkpoint yok).",
+    "  • BÜYÜK iş → en fazla 2-3 faz. Faz 1 ÇALIŞAN bir iskelet üretmeli (boş doküman değil); 2: ana",
+    "    özellikler; 3: cila. HER FAZDA birden çok paralel görev olsun. Az ama anlamlı faz.",
+    "- Analizdeki 'Önerilen Yaklaşım' ve 'Kör Noktalar' bölümlerini görevlere/fazlara yansıt.",
+    "- 3-8 görev. id'ler kısa ve benzersiz olsun.",
+    analysis ? `\n=== OPERATÖR ANALİZİ (kararların temeli) ===\n${analysis}` : "",
     "",
     "Sohbet/istek:",
     formatHistory(history) || "(boş)",
     message ? `\nSon istek: ${message}` : ""
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 }
 
-function parsePlanTasks(output: string): Array<{ id: string; title: string; role?: string; folder?: string; dependsOn?: string[] }> {
+function parsePlanTasks(output: string): Array<{ id: string; title: string; role?: string; folder?: string; dependsOn?: string[]; phase?: number }> {
   // JSON'u metin içinden ayıkla.
   const match = output.match(/\{[\s\S]*\}/);
   if (!match) return [];
@@ -281,7 +299,8 @@ function parsePlanTasks(output: string): Array<{ id: string; title: string; role
         title: String(t.title).trim(),
         role: allowedRoles.has(t.role) ? t.role : "builder",
         folder: typeof t.folder === "string" ? t.folder.replace(/[^a-z0-9._/-]/gi, "").slice(0, 60) : "",
-        dependsOn: Array.isArray(t.dependsOn) ? t.dependsOn.filter((d: any) => typeof d === "string") : []
+        dependsOn: Array.isArray(t.dependsOn) ? t.dependsOn.filter((d: any) => typeof d === "string") : [],
+        phase: Number.isFinite(t.phase) && t.phase >= 1 ? Math.floor(t.phase) : 1
       }));
   } catch {
     return [];
@@ -481,6 +500,20 @@ function readLastModelContent(path: string): string | undefined {
   return fallback;
 }
 
+// agy sohbet/analiz çağrıları için boş, nötr bir çalışma dizini (repo'yu görmesin).
+let neutralCwdCache: string | undefined;
+function neutralAgyCwd() {
+  if (neutralCwdCache && existsSync(neutralCwdCache)) return neutralCwdCache;
+  const dir = join(tmpdir(), "orkestra-agy-neutral");
+  try {
+    mkdirSync(dir, { recursive: true });
+    neutralCwdCache = dir;
+    return dir;
+  } catch {
+    return undefined;
+  }
+}
+
 // Claude cagrilari sirayla calistirilir ki ayni anda ust uste binmesin.
 let claudeQueue: Promise<unknown> = Promise.resolve();
 
@@ -500,7 +533,9 @@ function callPlannerRaw(id: PlannerId, prompt: string, model?: string, effort?: 
     // Saat karşılaştırması yerine: çalıştırma ÖNCESİ transcript mtime'larını al; sonra
     // YENİ ya da DEĞİŞEN transcript'i bul. Deterministik (clock skew/pencere sorunu yok).
     const before = snapshotAgyTranscripts();
-    return runTool("agy", args, "", plannerTimeoutMs)
+    // Sohbet/tartışma/analiz çağrıları NÖTR bir dizinde çalışır: agy repo dosyalarını görüp
+    // prompt'u "ajan görevi" sanmasın (araç kullanımı/dosya keşfi → temiz metin cevabı vermez).
+    return runTool("agy", args, "", plannerTimeoutMs, neutralAgyCwd())
       .then(async (output) => {
         const stdout = output.trim();
         if (stdout && !/Usage of agy|flag needs an argument|Available subcommands/i.test(stdout)) return stdout;
@@ -584,6 +619,8 @@ export type DebateEvent =
   | { type: "message"; planner: PlannerId; modelLabel: string; content: string; round: number }
   | { type: "summary"; content: string }
   | { type: "analysis"; content: string; modelLabel: string }
+  | { type: "analysis_pending"; modelLabel: string }
+  | { type: "heartbeat" }
   | { type: "error"; planner: PlannerId; modelLabel: string; message: string }
   | { type: "done" };
 
@@ -595,7 +632,7 @@ export async function* runDebate(
   model?: string,
   effort?: EffortLevel,
   detailLevel?: "low" | "medium" | "high",
-  operator?: Participant
+  skipClosing?: boolean
 ): AsyncGenerator<DebateEvent> {
   const active: Participant[] = [];
   for (const person of participants) {
@@ -616,68 +653,102 @@ export async function* runDebate(
   const turns: DebateTurn[] = [];
   const safeRounds = Math.min(3, Math.max(1, rounds));
   for (let round = 1; round <= safeRounds; round++) {
-    for (let i = 0; i < active.length; i++) {
-      const person = active[i];
+    // Bu turdaki tüm ajanlar PARALEL çalışır; cevabı BİTEN önce chat'e yazar (sabit sıra yok,
+    // Claude hep ilk değil). Ajanlar bir önceki turun çıktısını görür; aynı tur içinde paralel.
+    const snapshot = [...turns];
+    type RoundResult =
+      | { kind: "message"; person: Participant; label: string; content: string }
+      | { kind: "error"; person: Participant; label: string; message: string };
+    const tasks: Promise<RoundResult>[] = active.map((person, i) => {
       const speakerLabel = activeLabels[i];
-      const prompt = await buildDebatePromptWithDetail(speakerLabel, message, history, turns, round, safeRounds, activeLabels, detailLevel);
-      try {
-        const content = cleanPlannerOutput(await callPlannerRaw(person.cli, prompt, person.model ?? model, effort));
-        turns.push({ planner: person.cli, modelLabel: speakerLabel, content });
-        yield { type: "message", planner: person.cli, modelLabel: speakerLabel, content, round };
-      } catch (error) {
-        const raw = error instanceof Error ? error.message : String(error);
-        yield { type: "error", planner: person.cli, modelLabel: speakerLabel, message: cleanPlannerOutput(raw) };
+      return (async (): Promise<RoundResult> => {
+        const prompt = await buildDebatePromptWithDetail(speakerLabel, message, history, snapshot, round, safeRounds, activeLabels, detailLevel);
+        try {
+          const content = cleanPlannerOutput(await callPlannerRaw(person.cli, prompt, person.model ?? model, effort));
+          return { kind: "message", person, label: speakerLabel, content };
+        } catch (error) {
+          return { kind: "error", person, label: speakerLabel, message: cleanPlannerOutput(error instanceof Error ? error.message : String(error)) };
+        }
+      })();
+    });
+    // Tamamlanma sırasına göre yield et.
+    const wrapped = tasks.map((p, i) => p.then((r) => ({ i, r })));
+    const pool = new Set(wrapped);
+    while (pool.size) {
+      const { i, r } = await Promise.race(pool);
+      pool.delete(wrapped[i]);
+      if (r.kind === "message") {
+        turns.push({ planner: r.person.cli, modelLabel: r.label, content: r.content });
+        yield { type: "message", planner: r.person.cli, modelLabel: r.label, content: r.content, round };
+      } else {
+        yield { type: "error", planner: r.person.cli, modelLabel: r.label, message: r.message };
       }
     }
   }
 
-  if (turns.length) {
-    if (operator) {
-      // Analiz kartı KRİTİK: her zaman oluşmalı. Operatör → yedek ajan → turlardan kart.
-      const analysisPrompt = buildOperatorAnalysisPrompt(message, turns);
-      const isValid = (a: string) =>
-        a && a.trim().length > 30 &&
-        !/okunamad|yanıt vermedi|zaman aşımı|üretemedi|bulunamadı|Usage of agy|flag needs an argument|Available subcommands/i.test(a);
-
-      let analysis = "";
-      let analyst = operator;
-      // 1) Operatör.
-      try {
-        analysis = cleanPlannerOutput(await callPlannerRaw(operator.cli, analysisPrompt, operator.model, effort));
-      } catch {
-        analysis = "";
-      }
-      // 2) Operatör üretemezse: başka aktif (operatör olmayan) bir ajan dener.
-      if (!isValid(analysis)) {
-        const backup = active.find((p) => p.cli !== operator.cli) ?? active[0];
-        if (backup) {
-          try {
-            const out = cleanPlannerOutput(await callPlannerRaw(backup.cli, analysisPrompt, backup.model ?? model, effort));
-            if (isValid(out)) {
-              analysis = out;
-              analyst = backup;
-            }
-          } catch {
-            // sonraki adıma geç
-          }
-        }
-      }
-      // 3) Hâlâ yoksa: tartışma turlarından yapısal bir analiz kartı kur (boş bırakma).
-      if (!isValid(analysis)) {
-        analysis = buildFallbackAnalysis(message, turns);
-      }
-      yield { type: "analysis", content: analysis, modelLabel: participantLabel(analyst.cli, analyst.model) };
-    } else {
-      const summarizer = active[0];
-      try {
-        const summary = cleanPlannerOutput(await callPlannerRaw(summarizer.cli, buildDebateSummaryPrompt(message, turns), summarizer.model ?? model, effort));
-        yield { type: "summary", content: summary };
-      } catch {
-        // Ozet basarisizsa sessiz gec; ham tartisma yine de kullanicida.
-      }
+  // Operatör analizi artık STREAM'de yapılmaz (uzun sessizlik → bağlantı kopuyordu).
+  // Code modunda frontend tartışma bitince ayrı /api/analyze çağırır (skipClosing=true).
+  // Chat modunda burada sade bir karar özeti üretilir.
+  if (turns.length && !skipClosing) {
+    const summarizer = active[0];
+    try {
+      const summary = cleanPlannerOutput(await callPlannerRaw(summarizer.cli, buildDebateSummaryPrompt(message, turns), summarizer.model ?? model, effort));
+      yield { type: "summary", content: summary };
+    } catch {
+      // Ozet basarisizsa sessiz gec; ham tartisma yine de kullanicida.
     }
   }
   yield { type: "done" };
+}
+
+// Operatör analizi — tartışma turlarından 5 bölümlü kartı üretir. STREAM'den BAĞIMSIZ:
+// /api/analyze tarafından çağrılır (normal POST → JSON). Her zaman geçerli içerik döner.
+export async function analyzeDebate(
+  participants: Participant[],
+  operator: Participant,
+  message: string,
+  turns: DebateTurn[],
+  model?: string,
+  effort?: EffortLevel
+): Promise<{ content: string; modelLabel: string }> {
+  const analysisPrompt = buildOperatorAnalysisPrompt(message, turns);
+  const isValid = (a: string) =>
+    !!a && a.trim().length > 30 &&
+    !/okunamad|yanıt vermedi|zaman aşımı|üretemedi|bulunamadı|Usage of agy|flag needs an argument|Available subcommands/i.test(a);
+
+  const tryAnalyst = async (p: Participant): Promise<{ content: string; analyst: Participant } | null> => {
+    try {
+      const out = cleanPlannerOutput(await callPlannerRaw(p.cli, analysisPrompt, p.model ?? model, effort));
+      return isValid(out) ? { content: out, analyst: p } : null;
+    } catch {
+      return null;
+    }
+  };
+
+  // Operatör + ilk farklı CLI yedeğini PARALEL dene; İLK GEÇERLİ olanı al (en hızlısı kazanır →
+  // operatör agy yavaşsa claude/codex paralel döner). Hepsi başarısızsa ya da 70sn aşılırsa fallback.
+  const backup = participants.find((p) => p.cli !== operator.cli);
+  const candidates = backup ? [operator, backup] : [operator];
+  const fallback = { content: buildFallbackAnalysis(message, turns), analyst: operator };
+
+  const winner = await new Promise<{ content: string; analyst: Participant }>((resolve) => {
+    let pending = candidates.length;
+    let settled = false;
+    const finish = (r: { content: string; analyst: Participant }) => {
+      if (settled) return;
+      settled = true;
+      resolve(r);
+    };
+    for (const p of candidates) {
+      void tryAnalyst(p).then((r) => {
+        if (r) finish(r);
+        else if (--pending === 0) finish(fallback);
+      });
+    }
+    setTimeout(() => finish(fallback), 70_000);
+  });
+
+  return { content: winner.content, modelLabel: participantLabel(winner.analyst.cli, winner.analyst.model) };
 }
 
 async function buildDebatePromptWithDetail(
@@ -1013,7 +1084,7 @@ function safeJsonParse<T>(value: string): T | undefined {
   }
 }
 
-function runTool(command: string, args: string[], input: string, timeoutMs = plannerTimeoutMs) {
+function runTool(command: string, args: string[], input: string, timeoutMs = plannerTimeoutMs, cwd?: string) {
   return new Promise<string>((resolve, reject) => {
     const resolved = resolveTool(command);
     const executable = resolved.executable;
@@ -1023,7 +1094,8 @@ function runTool(command: string, args: string[], input: string, timeoutMs = pla
       timeout: timeoutMs,
       windowsHide: true,
       maxBuffer: 1024 * 1024 * 5,
-      env: envForTool(command)
+      env: envForTool(command),
+      cwd
     }, (error, stdout, stderr) => {
       const output = `${stdout ?? ""}${stderr ? `\n${stderr}` : ""}`.trim();
       if (error) {

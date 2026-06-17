@@ -16,7 +16,8 @@ export type RunEventType =
   | "file_changed"
   | "file_deleted"
   | "limit_detected"
-  | "fallback_used";
+  | "fallback_used"
+  | "phase_done";
 
 export interface Agent {
   id: string;
@@ -76,6 +77,7 @@ export interface PlanTask {
   role?: AgentRole; // agentId/cli yoksa rol üzerinden seçilir
   folder?: string; // alt-klasör (paralel görevlerin çakışmaması için)
   dependsOn?: string[]; // önce bitmesi gereken görev id'leri
+  phase?: number; // faz numarası (1,2,3…). Büyük projeler faza bölünür; her faz sonunda onay beklenir.
 }
 
 export interface PlanResponse {

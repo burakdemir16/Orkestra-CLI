@@ -2648,16 +2648,29 @@ textarea:focus {
   to { transform: rotate(360deg); }
 }
 
+.liveProgressText {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
 .liveLabel {
   font-size: 0.82rem;
   font-weight: 700;
   color: #16a34a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .liveFile {
   font-family: var(--mono, ui-monospace, monospace);
-  font-size: 0.76rem;
-  color: var(--text-primary);
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+  align-self: flex-start;
+  max-width: 100%;
   background: rgba(148, 163, 184, 0.14);
   padding: 2px 8px;
   border-radius: 6px;
@@ -2829,6 +2842,9 @@ textarea:focus {
   border: 1px solid rgba(129, 140, 248, 0.35);
   background: var(--card-bg);
   overflow: hidden;
+  /* codeChatMessages bir flex column; overflow:hidden olan öğenin min-height:auto'su 0'a düşer
+     ve içerik taşınca kart 2px'e ezilirdi. flex-shrink:0 ile içeriği kadar yer kaplar. */
+  flex-shrink: 0;
 }
 
 .analysisHead {
@@ -2857,17 +2873,116 @@ textarea:focus {
   cursor: pointer;
 }
 
-.analysisGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 8px;
-  padding: 10px;
+.analysisAccordion {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
 }
+
+.accItem {
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(148, 163, 184, 0.04);
+  overflow: hidden;
+}
+
+.accHead {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 10px 12px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.accHead:hover { background: rgba(148, 163, 184, 0.06); }
+
+.accIcon { flex: none; }
+
+.accTitle {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.82rem;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accCount {
+  flex: none;
+  min-width: 20px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.18);
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.accPreview {
+  padding: 0 12px 10px 35px;
+  margin-top: -2px;
+  font-size: 0.74rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accBody {
+  margin: 0;
+  padding: 2px 14px 12px 35px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.accBody li {
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+/* Tona göre ikon + sol şerit rengi */
+.accItem.consensus { border-left: 3px solid #10b981; }
+.accItem.consensus .accIcon { color: #10b981; }
+.accItem.divergence { border-left: 3px solid #ef4444; }
+.accItem.divergence .accIcon { color: #ef4444; }
+.accItem.partial { border-left: 3px solid #3b82f6; }
+.accItem.partial .accIcon { color: #3b82f6; }
+.accItem.unique { border-left: 3px solid #a855f7; }
+.accItem.unique .accIcon { color: #a855f7; }
+.accItem.blind { border-left: 3px solid #f59e0b; }
+.accItem.blind .accIcon { color: #f59e0b; }
+.accItem.recommend { border-left: 3px solid #818cf8; }
+.accItem.recommend .accIcon { color: #818cf8; }
+.accItem.default { border-left: 3px solid #64748b; }
 
 .analysisActions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.operatorAnalyzing {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 6px 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(139, 92, 246, 0.07));
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 .debateActionBar {
@@ -2879,6 +2994,45 @@ textarea:focus {
   border-radius: 14px;
   border: 1px solid rgba(99, 102, 241, 0.28);
   background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(14, 165, 233, 0.07));
+}
+
+.phasePendingBar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 6px 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(99, 102, 241, 0.06));
+}
+
+.phasePendingHint {
+  flex: 1;
+  min-width: 160px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.codingModeBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(99, 102, 241, 0.05));
+}
+
+.codingModeHint {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
 }
 
 .debateActionHint {
@@ -3102,51 +3256,6 @@ textarea:focus {
 }
 
 .coderRow > .pill:first-child { flex: 1; }
-
-.analysisSection {
-  border-radius: 10px;
-  border: 1px solid var(--border-soft);
-  border-left: 3px solid #6366f1;
-  background: var(--panel-bg);
-  padding: 8px 10px;
-}
-
-.analysisSection header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.78rem;
-  font-weight: 800;
-  color: var(--text-primary);
-  margin-bottom: 5px;
-}
-
-.analysisSection ul {
-  margin: 0;
-  padding-left: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.analysisSection li {
-  font-size: 0.78rem;
-  line-height: 1.4;
-  color: var(--text-secondary);
-}
-
-.analysisSection.consensus { border-left-color: #10b981; }
-.analysisSection.consensus header { color: #10b981; }
-.analysisSection.divergence { border-left-color: #ef4444; }
-.analysisSection.divergence header { color: #ef4444; }
-.analysisSection.partial { border-left-color: #3b82f6; }
-.analysisSection.partial header { color: #3b82f6; }
-.analysisSection.unique { border-left-color: #a855f7; }
-.analysisSection.unique header { color: #a855f7; }
-.analysisSection.blind { border-left-color: #f59e0b; }
-.analysisSection.blind header { color: #f59e0b; }
-.analysisSection.recommend { border-left-color: #6366f1; grid-column: 1 / -1; }
-.analysisSection.recommend header { color: #818cf8; }
 
 .analysisRaw {
   margin: 0;

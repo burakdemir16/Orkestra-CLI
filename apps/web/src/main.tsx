@@ -307,6 +307,12 @@ const uiText = {
     operatorBuild: "Let operator build",
     teamWork: "Team work",
     debateDoneHint: "Debate finished. How should we proceed?",
+    operatorAnalyzingLabel: "Operator is analyzing…",
+    phaseDoneHint: "Phase complete — review and continue?",
+    phaseContinue: "Continue to next phase",
+    codingModeHint: "Coding mode — your message is an instruction to the agents (continue from where they left off), not a debate.",
+    backToDebate: "Back to debate",
+    backToDebateTitle: "Exit coding mode and discuss with the agents again",
     working: "Working…",
     teamWorkTitle: "Team Work — Division of Labor",
     teamWorkDesc: "No planner needed (the plan was made in the chat). Pick the coding agents and an optional reviewer.",
@@ -525,6 +531,12 @@ const uiText = {
     operatorBuild: "Operatöre Projeyi Yaptır",
     teamWork: "Ekip Çalışması",
     debateDoneHint: "Tartışma bitti. Nasıl ilerleyelim?",
+    operatorAnalyzingLabel: "Operatör analiz ediyor…",
+    phaseDoneHint: "Faz tamamlandı — inceleyip devam edelim mi?",
+    phaseContinue: "Sıradaki faza devam et",
+    codingModeHint: "Kodlama modu — mesajın ajana TALİMAT olur (kaldığı yerden devam), tartışma açmaz.",
+    backToDebate: "Tartışmaya dön",
+    backToDebateTitle: "Kodlama modundan çık, ajanlarla tekrar tartış",
     working: "Çalışıyor…",
     teamWorkTitle: "Ekip Çalışması — İş Bölümü",
     teamWorkDesc: "Planlayıcı yok (plan sohbette yapıldı). Kod yazacak ajanları ve isteğe bağlı bir denetçiyi seç.",
@@ -613,7 +625,7 @@ const api = {
   }
 };
 
-type StoredConversation = { id: string; title: string; messages: ChatMessage[]; updatedAt: string; workspacePath?: string | null; projectId?: string | null };
+type StoredConversation = { id: string; title: string; messages: ChatMessage[]; updatedAt: string; workspacePath?: string | null; projectId?: string | null; codingActive?: boolean; phasePendingRunId?: string | null };
 // Proje: kalıcı bir kod tabanı/klasör. Her projenin kendi oturum (konuşma) geçmişi olur.
 type Project = { id: string; name: string; workspacePath: string; createdAt: string };
 const PROJECTS_KEY = "orkestra.projects";
@@ -717,6 +729,9 @@ function App() {
   const [codeConvos, setCodeConvos] = useState<StoredConversation[]>([]);
   const [chatConvoId, setChatConvoId] = useState<string>(() => crypto.randomUUID());
   const [codeConvoId, setCodeConvoId] = useState<string>(() => crypto.randomUUID());
+  // Async analizin doğru oturuma yazılması için codeConvoId'i ref'te de tut (closure güncel kalsın).
+  const codeConvoIdRef = useRef(codeConvoId);
+  useEffect(() => { codeConvoIdRef.current = codeConvoId; }, [codeConvoId]);
 
   // Aktif sekmeye göre türetilmiş alias'lar — gerisi değişmeden çalışır.
   const isCodeView = activeView === "code";
@@ -737,6 +752,11 @@ function App() {
   // Operatör (Code tartışma): tartışmayı 5 başlıklı analize çeviren model. null = klasik özet.
   const [operatorSel, setOperatorSel] = useState<{ cli: DebateParticipant; model: string } | null>(null);
   const [lastAnalysis, setLastAnalysis] = useState<string | null>(null);
+  // Faz onayı bekleyen run id'si (faz bitti, kullanıcı "devam et" demeli).
+  const [phasePending, setPhasePending] = useState<string | null>(null);
+  // Kodlama modu: bir kez kodlama başlayınca mesajlar tartışma DEĞİL, ajana TALİMAT olur
+  // (kaldığı yerden devam). "Tartışmaya dön" ile çıkılır. Proje bazlı kalıcı.
+  const [codingActive, setCodingActive] = useState(false);
   const [chatHeight, setChatHeight] = useState<number>(() => {
     const saved = Number(localStorage.getItem("orkestra.chatHeight"));
     return Number.isFinite(saved) && saved >= 280 ? saved : 600;
@@ -761,6 +781,10 @@ function App() {
   const [planLoading, setPlanLoading] = useState(false);
   // Code modunda tartışma bitince analiz + 3 aksiyon barı gösterilir.
   const [codeDebateDone, setCodeDebateDone] = useState(false);
+  // Operatör analizi sürerken gösterge (model etiketi); analiz gelince null.
+  const [operatorAnalyzing, setOperatorAnalyzing] = useState<string | null>(null);
+  // Bir tartışma için analizin bir kez tetiklendiğini izler (her yeni tartışmada sıfırlanır).
+  const analysisFiredRef = useRef(false);
   const [showPreview, setShowPreview] = useState(false);
   const [fileDialogOpen, setFileDialogOpen] = useState(false);
   const [openFileTabs, setOpenFileTabs] = useState<OpenFileTab[]>([]);
@@ -833,6 +857,21 @@ function App() {
     setSelectedModel("default");
   }, [singleCli, mode]);
 
+  // Operatör analizini tartışma bitince TAZE messages'tan tetikler. streamDebate'in iç
+  // değişkenlerine/closure'ına bağlı değil → en güvenilir yol. Tartışma başına bir kez.
+  useEffect(() => {
+    if (!codeDebateDone || activeView !== "code") return;
+    if (analysisFiredRef.current) return; // tartışma başına bir kez (sendChat'te sıfırlanır)
+    const turns = codeMessages
+      .filter((m) => m.role === "assistant" && m.planner !== "analysis" && m.planner !== "system" && m.content.trim())
+      .map((m) => ({ cli: m.planner, modelLabel: m.modelLabel, content: m.content }));
+    if (!turns.length) return;
+    analysisFiredRef.current = true;
+    const topic = [...codeMessages].reverse().find((m) => m.role === "user")?.content ?? "proje";
+    // 2. turda da çalışır: fetchOperatorAnalysis eski analiz kartını kaldırıp yenisini ekler.
+    void fetchOperatorAnalysis(topic, turns);
+  }, [codeDebateDone, codeMessages, activeView]);
+
   // Return to default if the selected model is limited or missing.
   useEffect(() => {
     const current = modelOptions.find((m) => m.id === selectedModel);
@@ -871,7 +910,9 @@ function App() {
     id: string,
     setConvos: React.Dispatch<React.SetStateAction<StoredConversation[]>>,
     workspacePath?: string | null,
-    projectId?: string | null
+    projectId?: string | null,
+    coding?: boolean,
+    phaseRunId?: string | null
   ) {
     if (!msgs.some((message) => message.role === "user")) return;
     setConvos((current) => {
@@ -883,7 +924,9 @@ function App() {
         messages: msgs,
         updatedAt: new Date().toISOString(),
         workspacePath: workspacePath ?? prev?.workspacePath ?? null,
-        projectId: projectId ?? prev?.projectId ?? null
+        projectId: projectId ?? prev?.projectId ?? null,
+        codingActive: coding ?? prev?.codingActive ?? false,
+        phasePendingRunId: phaseRunId !== undefined ? phaseRunId : prev?.phasePendingRunId ?? null
       };
       const next = [convo, ...current.filter((item) => item.id !== id)];
       saveConversations(key, next);
@@ -896,8 +939,8 @@ function App() {
   }, [chatMessages, chatConvoId]);
 
   useEffect(() => {
-    persistConvo(CODE_CONVERSATIONS_KEY, codeMessages, codeConvoId, setCodeConvos, projectWorkspace, activeProjectId);
-  }, [codeMessages, codeConvoId, projectWorkspace, activeProjectId]);
+    persistConvo(CODE_CONVERSATIONS_KEY, codeMessages, codeConvoId, setCodeConvos, projectWorkspace, activeProjectId, codingActive, phasePending);
+  }, [codeMessages, codeConvoId, projectWorkspace, activeProjectId, codingActive, phasePending]);
 
   // "Yeni" = aktif PROJE içinde yeni oturum (workspace korunur, dosya gezgini aynı projede kalır).
   function newChat() {
@@ -907,6 +950,8 @@ function App() {
     setNotice(null);
     setCodeDebateDone(false);
     setLastAnalysis(null);
+    setPhasePending(null);
+    setCodingActive(false); // yeni oturum tartışmayla başlar
     setConversationId(crypto.randomUUID());
     if (isCodeView) {
       setActiveRun(null);
@@ -927,6 +972,8 @@ function App() {
     setNotice(null);
     setCodeDebateDone(false);
     setLastAnalysis(null);
+    setPhasePending(null);
+    setCodingActive(false);
     setConversationId(crypto.randomUUID());
   }
 
@@ -946,9 +993,13 @@ function App() {
       const latest = sessions[0];
       setCodeMessages(latest.messages.length ? latest.messages : [welcomeMessageFor(language)]);
       setCodeConvoId(latest.id);
+      setCodingActive(Boolean(latest.codingActive));
+      void restorePendingPhase(latest.phasePendingRunId); // bekleyen faz varsa "devam et" geri gelsin
     } else {
       setCodeMessages([welcomeMessageFor(language)]);
       setCodeConvoId(crypto.randomUUID());
+      setCodingActive(false);
+      setPhasePending(null);
     }
   }
 
@@ -979,6 +1030,10 @@ function App() {
       setEvents([]);
       setCodeMessages([welcomeMessageFor(language)]);
       setCodeConvoId(crypto.randomUUID());
+      setCodingActive(false);
+      setCodeDebateDone(false);
+      setLastAnalysis(null);
+      setPhasePending(null);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
     }
@@ -1021,12 +1076,14 @@ function App() {
     setSuggestedPrompt(null);
     setAttachments([]);
     setCodeDebateDone(false);
-    // Proje bazlı: kod oturumuna dönünce o projenin workspace + projesini geri yükle.
+    // Proje bazlı: kod oturumuna dönünce o projenin workspace + projesi + kodlama modu geri yüklenir.
     if (isCodeView) {
       setProjectWorkspace(convo.workspacePath ?? null);
       setActiveProjectId(convo.projectId ?? null);
+      setCodingActive(Boolean(convo.codingActive));
       setActiveRun(null);
       setEvents([]);
+      void restorePendingPhase(convo.phasePendingRunId); // bekleyen faz varsa "devam et" geri gelsin
     }
   }
 
@@ -1118,7 +1175,22 @@ function App() {
       if (event.type === "agent_step") {
         setActiveRun((cur) => (cur && cur.id === event.runId ? { ...cur, activeStep: event.message } : cur));
       }
-      if (event.type === "completed" || event.type === "failed") {
+      // Faz bitti → raporu chat'e ekle + "devam et" butonunu göster (run hâlâ çalışıyor, onay bekliyor).
+      if (event.type === "phase_done") {
+        setMessages((current) => [
+          ...current,
+          { id: crypto.randomUUID(), role: "assistant", planner: "system", modelLabel: "Orkestra", content: event.message, createdAt: new Date().toISOString() }
+        ]);
+        setPhasePending(event.runId);
+      }
+      // ÖNEMLİ: ajan-bazlı completed/failed (agentId dolu) RUN'ı bitirmez — sadece o ajan bitti.
+      // Run'ın gerçekten bittiği, agentId'siz (run-seviyesi) completed/failed olayıdır.
+      const isRunLevel = !event.agentId;
+      if ((event.type === "completed" || event.type === "failed") && isRunLevel) {
+        // Duraklatma (⏸️) gerçek hata DEĞİL — "devam et" butonu (phasePending) korunur.
+        const paused = event.type === "failed" && /⏸️|[Dd]uraklat/.test(event.message ?? "");
+        if (!paused) setPhasePending(null);
+        else setPhasePending(event.runId);
         setActiveRun((cur) =>
           cur && cur.id === event.runId
             ? { ...cur, status: event.type === "completed" ? "completed" : "failed", activeStep: event.type, completedAt: new Date().toISOString() }
@@ -1138,11 +1210,14 @@ function App() {
     if (reportedRunRef.current === key) return;
     reportedRunRef.current = key;
     const totals = computeFileTotals(events);
+    // Backend'in ürettiği gerçek ajan raporu (operatör/ekip "şunları yaptım/yaptık") + dosya özeti.
+    const agentReport = (activeRun.summary ?? "").trim();
+    const fileLine = language === "tr"
+      ? `\n\n📄 ${totals.count} dosya düzenlendi (+${totals.adds} -${totals.dels}). "İncele" ile değişiklikleri görebilir veya Önizleme açabilirsin.`
+      : `\n\n📄 ${totals.count} files changed (+${totals.adds} -${totals.dels}). Review the changes or open Preview.`;
     const content =
       activeRun.status === "completed"
-        ? (language === "tr"
-            ? `✅ Görev tamamlandı — ${totals.count} dosya düzenlendi (+${totals.adds} -${totals.dels}). Devam etmek için yeni bir talimat yazabilir, "İncele" ile değişiklikleri görebilir veya Önizleme açabilirsin.`
-            : `✅ Task completed — ${totals.count} files changed (+${totals.adds} -${totals.dels}). Type a new instruction to continue, review the changes, or open Preview.`)
+        ? (agentReport || (language === "tr" ? "✅ Görev tamamlandı." : "✅ Task completed.")) + fileLine
         : (language === "tr"
             ? `⚠️ Görev durdu/başarısız: ${activeRun.summary ?? ""}. Bir not bırakıp tekrar başlatabilir veya yeni talimat verebilirsin.`
             : `⚠️ Task stopped/failed: ${activeRun.summary ?? ""}. Leave a note and restart, or give a new instruction.`);
@@ -1178,9 +1253,15 @@ function App() {
     content?: string;
     message?: string;
   }) {
+    if (ev.type === "heartbeat") return; // sadece bağlantıyı canlı tutar
+    if (ev.type === "analysis_pending") {
+      setOperatorAnalyzing(ev.modelLabel ?? text.operatorAnalysis);
+      return;
+    }
     if (ev.type === "message" || ev.type === "summary" || ev.type === "analysis") {
       const isSummary = ev.type === "summary";
       const isAnalysis = ev.type === "analysis";
+      if (isAnalysis) setOperatorAnalyzing(null);
       const msg: ChatMessage = {
         id: crypto.randomUUID(),
         role: "assistant",
@@ -1221,6 +1302,7 @@ function App() {
   }
 
   async function streamDebate(message: string, history: ChatMessage[]) {
+    const isCode = activeView === "code";
     const res = await fetch("/api/debate", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -1231,15 +1313,16 @@ function App() {
         rounds: debateRounds,
         effort: selectedEffort,
         detailLevel: selectedDetailLevel,
-        operator: activeView === "code" && operatorSel
-          ? { cli: operatorSel.cli, model: operatorSel.model === "default" ? undefined : operatorSel.model }
-          : undefined
+        // Code modunda kapanış (özet) stream'de YAPILMAZ; analiz ayrı /api/analyze ile alınır.
+        skipClosing: isCode
       })
     });
     if (!res.ok || !res.body) throw new Error(await res.text().catch(() => text.debateCouldNotStart));
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+    // Analiz için turları topla (operatör analizi tartışma bitince ayrı çağrılır).
+    const collectedTurns: { cli?: string; modelLabel?: string; content?: string }[] = [];
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -1249,14 +1332,83 @@ function App() {
       for (const line of lines) {
         if (!line.trim()) continue;
         try {
-          appendDebateEvent(JSON.parse(line));
+          const ev = JSON.parse(line);
+          if (ev.type === "message") collectedTurns.push({ cli: ev.planner, modelLabel: ev.modelLabel, content: ev.content });
+          appendDebateEvent(ev);
         } catch {
           // Ignore partial or invalid lines.
         }
       }
     }
-    // Code modunda tartışma bitti → analiz altında 3 aksiyon barını göster.
-    if (activeView === "code") setCodeDebateDone(true);
+    // Code modunda: tartışma bitti → bayrağı kaldır. Operatör analizi codeDebateDone'u izleyen
+    // useEffect tarafından TAZE messages'tan tetiklenir (streamDebate closure'ına bağımlı değil).
+    void collectedTurns; // (artık kullanılmıyor; analiz useEffect'ten)
+    if (isCode) setCodeDebateDone(true);
+  }
+
+  // Tartışmadaki turlardan client-side basit bir analiz kartı kurar (backend boş/hata dönerse).
+  function clientFallbackAnalysis(message: string, turns: { cli?: string; modelLabel?: string; content?: string }[]) {
+    const lines = turns
+      .filter((t) => t.content?.trim())
+      .map((t) => `- **${t.modelLabel ?? t.cli ?? "Ajan"}**: ${t.content!.trim().replace(/\s+/g, " ").slice(0, 280)}`);
+    return [
+      "## Ortak Görüş",
+      "Operatör otomatik analizi alınamadı; katılımcı görüşleri aşağıda derlenmiştir.",
+      "## Benzersiz Fikirler",
+      ...lines,
+      "## Önerilen Yaklaşım",
+      `- "${message}" işini yukarıdaki görüşlerin ortak yönlerini birleştirerek uygulayın.`
+    ].join("\n");
+  }
+
+  // Tartışma sonrası operatör analizi. KESİN görünürlük: önce ANINDA turlardan bir kart eklenir,
+  // sonra gerçek analiz gelince aynı kart GÜNCELLENİR. Backend ne yaparsa yapsın kart görünür.
+  async function fetchOperatorAnalysis(message: string, turns: { cli?: string; modelLabel?: string; content?: string }[]) {
+    const op = operatorSel ?? participants[0];
+    if (!op) return;
+    // Bu analiz hangi oturuma ait? Async bittiğinde kullanıcı başka projeye geçmişse YAZMA (sızma önlenir).
+    const ownerConvo = codeConvoIdRef.current;
+    const stillHere = () => codeConvoIdRef.current === ownerConvo;
+    const opLabel = labelForAgent(op.cli, op.model);
+    if (!stillHere()) return;
+    // Önce SADECE gösterge (kart yok) — "alınamadı" fallback'i flash etmesin, tek kart gelsin.
+    setOperatorAnalyzing(opLabel);
+    let content = "";
+    let modelLbl = opLabel;
+    try {
+      const res = await Promise.race([
+        api.post<{ content: string; modelLabel: string }>("/api/analyze", {
+          message,
+          turns,
+          participants: participants.map((p) => ({ cli: p.cli, model: p.model === "default" ? undefined : p.model })),
+          operator: { cli: op.cli, model: op.model === "default" ? undefined : op.model },
+          effort: selectedEffort
+        }),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("analyze-timeout")), 85_000))
+      ]);
+      if (res.content?.trim()) {
+        content = res.content.trim();
+        modelLbl = res.modelLabel ?? opLabel;
+      }
+    } catch {
+      // backend hata/zaman aşımı → client fallback
+    }
+    if (!content) content = clientFallbackAnalysis(message, turns);
+    if (!stillHere()) { setOperatorAnalyzing(null); return; }
+    // Tek kart: eski analiz kartı(ları) kaldır, gerçeğini en alta ekle.
+    setCodeMessages((current) => [
+      ...current.filter((m) => m.planner !== "analysis"),
+      {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        planner: "analysis",
+        modelLabel: `${text.operatorAnalysis} · ${modelLbl}`,
+        content,
+        createdAt: new Date().toISOString()
+      }
+    ]);
+    setLastAnalysis(content);
+    setOperatorAnalyzing(null);
   }
 
   async function sendChat(overrideText?: string) {
@@ -1266,6 +1418,8 @@ function App() {
     setNotice(null);
     setSuggestedPrompt(null);
     setCodeDebateDone(false);
+    setOperatorAnalyzing(null);
+    analysisFiredRef.current = false;
     setChatInput("");
     setAttachments([]);
 
@@ -1294,6 +1448,11 @@ function App() {
     setIsThinking(true);
 
     try {
+      // Kodlama modu: mesaj TARTIŞMA değil, ajana TALİMAT → kaldığı yerden devam et.
+      if (isCodeView && codingActive) {
+        await continueCodingRun(messageToSend);
+        return;
+      }
       if (selectedPlanner === "debate") {
         await streamDebate(messageToSend, nextHistory);
         return;
@@ -1406,9 +1565,13 @@ function App() {
     setPlanLoading(true);
     setPlanMeta(null);
     try {
+      // Fazları İLGİLİ AJAN (operatör ya da ilk katılımcı) ANALİZ KARTINI dikkate alarak belirlesin.
+      const lead = operatorSel ?? participants[0];
       const res = await api.post<{ tasks: PlanTask[]; planner: string; modelLabel: string }>("/api/plan", {
         history: messages,
-        planner: "auto"
+        planner: lead?.cli ?? "auto",
+        model: lead && lead.model !== "default" ? lead.model : undefined,
+        analysis: lastAnalysis ?? undefined
       });
       // Her göreve, oturum açılmış (limitli olmayan) bir CLI+model'i varsayılan ata —
       // kullanıcı modalda değiştirebilir. Tartışmadaki katılımcıları öncelikli dağıt.
@@ -1433,13 +1596,26 @@ function App() {
   }
 
   // Onaylanan ekip planını çalıştır (ekip modu run'ı).
+  // Görevleri "kodlayıcılar paralel, denetçi/düzeltici sonra" şeklinde bağla.
+  // Kodlayıcılar kendi (plandan gelen) bağımlılıklarını korur; denetçi tüm kodlayıcıları,
+  // düzeltici denetçileri (yoksa kodlayıcıları) bekler. Böylece kod yazımı paralel akar.
+  function wireTeamDependencies(tasks: PlanTask[]): PlanTask[] {
+    const builderIds = tasks.filter((t) => (t.role ?? "builder") === "builder").map((t) => t.id);
+    const reviewerIds = tasks.filter((t) => t.role === "reviewer").map((t) => t.id);
+    return tasks.map((t) => {
+      if (t.role === "reviewer") return { ...t, dependsOn: builderIds.filter((id) => id !== t.id) };
+      if (t.role === "fixer") return { ...t, dependsOn: (reviewerIds.length ? reviewerIds : builderIds).filter((id) => id !== t.id) };
+      return t; // kodlayıcı: plandaki bağımlılığını koru (genelde boş → paralel)
+    });
+  }
+
   async function approvePlan() {
     if (!planTasks.length) return;
     setPlanOpen(false);
     const goal = goalFromConversation() || planTasks.map((t) => t.title).join("; ");
     const run = await api.post<Run>("/api/runs", {
       prompt: goal,
-      tasks: planTasks,
+      tasks: wireTeamDependencies(planTasks),
       workspacePath: projectWorkspace ?? undefined
     });
     setActiveRun(run);
@@ -1448,6 +1624,7 @@ function App() {
     setEvents([]);
     setSuggestedPrompt(null);
     setCodeDebateDone(false);
+    setCodingActive(true); // ekip kodlamaya başladı → kodlama modu
     await refresh();
   }
 
@@ -1475,24 +1652,43 @@ function App() {
     return `${base}${analysis}`.trim();
   }
 
-  // Operatör projeyi tek başına (kendi CLI+model'i ile) bir görev dahilinde yapar.
+  // Operatör projeyi kendi CLI+model'iyle yapar. Fazları, ANALİZ KARTINI dikkate alarak
+  // operatörün kendisi belirler; her faz = operatöre tek görev, faz faz checkpoint'li gider.
   async function operatorBuild() {
     if (!operatorSel) {
       setNotice(language === "tr" ? "Önce bir operatör seçin." : "Pick an operator first.");
       return;
     }
+    const op = operatorSel;
     const goal = goalFromConversation();
-    const tasks: PlanTask[] = [
-      {
-        id: "operator-build",
-        title: language === "tr"
-          ? "Sohbette/analizde kararlaştırılan projeyi baştan sona uygula"
-          : "Implement the project decided in the chat/analysis end to end",
-        cli: operatorSel.cli,
-        model: operatorSel.model,
-        role: "builder"
-      }
-    ];
+    setOperatorAnalyzing(labelForAgent(op.cli, op.model)); // "planlıyor" göstergesi
+    let tasks: PlanTask[] = [];
+    try {
+      // Operatör analizi temel alarak projeyi fazlara böler.
+      const plan = await api.post<{ tasks: PlanTask[] }>("/api/plan", {
+        history: messages,
+        planner: op.cli,
+        model: op.model !== "default" ? op.model : undefined,
+        analysis: lastAnalysis ?? undefined
+      });
+      const phases = [...new Set((plan.tasks ?? []).map((t) => t.phase ?? 1))].sort((a, b) => a - b);
+      // Her faz → operatöre TEK görev (aynı ajanın paralel çakışmasını önler, faz faz ilerler).
+      tasks = phases.map((ph) => ({
+        id: `op-phase-${ph}`,
+        title: (plan.tasks ?? []).filter((t) => (t.phase ?? 1) === ph).map((t) => t.title).join("; ") || `Faz ${ph}`,
+        cli: op.cli,
+        model: op.model,
+        role: "builder" as AgentRole,
+        phase: ph
+      }));
+    } catch {
+      tasks = [];
+    } finally {
+      setOperatorAnalyzing(null);
+    }
+    if (!tasks.length) {
+      tasks = [{ id: "operator-build", title: goal.slice(0, 80) || "Projeyi uygula", cli: op.cli, model: op.model, role: "builder" }];
+    }
     const run = await api.post<Run>("/api/runs", {
       prompt: goal || tasks[0].title,
       tasks,
@@ -1504,7 +1700,33 @@ function App() {
     setEvents([]);
     setSuggestedPrompt(null);
     setCodeDebateDone(false);
+    setCodingActive(true); // artık kodlama modu — yeni mesajlar talimat olur, tartışma değil
     setNotice(text.operatorBuildStarted);
+    await refresh();
+  }
+
+  // Kodlama modunda yeni talimat: SIFIRDAN değil, mevcut workspace'te kaldığı yerden devam.
+  // Operatör (yoksa katılımcı/varsayılan builder) tek görev olarak uygular — tartışma yapmaz.
+  async function continueCodingRun(instruction: string) {
+    const op = operatorSel ?? participants[0];
+    const prompt = [
+      `KULLANICI TALİMATI: ${instruction}`,
+      "",
+      "Bu projede DAHA ÖNCE çalıştın; tüm dosyalar bu çalışma klasöründe (workspace) mevcut.",
+      "Önce mevcut dosyaları incele. SIFIRDAN BAŞLAMA. Kaldığın yerden devam et ve YALNIZCA bu talimatı uygula.",
+      "Tartışma/analiz yapma; doğrudan kodu yaz/düzenle. Çıktını kısa tut."
+    ].join("\n");
+    const tasks: PlanTask[] = [
+      { id: `continue-${Date.now()}`, title: instruction.slice(0, 80) || "Devam", cli: op?.cli, model: op?.model, role: "builder" }
+    ];
+    const run = await api.post<Run>("/api/runs", {
+      prompt,
+      tasks,
+      workspacePath: projectWorkspace ?? undefined
+    });
+    setActiveRun(run);
+    setProjectWorkspace(run.workspacePath);
+    setEvents([]);
     await refresh();
   }
 
@@ -1528,6 +1750,41 @@ function App() {
     if (!activeRun) return;
     try {
       await api.post(`/api/runs/${activeRun.id}/stop`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  // Oturuma dönünce: kayıtlı bekleyen faz run'ını geri yükle (faz onayı butonu + activeRun gelsin).
+  async function restorePendingPhase(runId?: string | null) {
+    if (!runId) { setPhasePending(null); return; }
+    try {
+      const run = await api.get<Run>(`/api/runs/${runId}`);
+      const awaiting =
+        (run.status === "running" && /awaiting/i.test(run.activeStep ?? "")) ||
+        (run.status === "failed" && /Duraklat|⏸/i.test(run.summary ?? ""));
+      if (awaiting) {
+        setActiveRun(run);
+        setPhasePending(runId);
+      } else {
+        setPhasePending(null);
+      }
+    } catch {
+      setPhasePending(null);
+    }
+  }
+
+  // Faz onayı: "devam et" → bir sonraki faza geç.
+  async function resumePhase() {
+    if (!phasePending) return;
+    const id = phasePending;
+    setPhasePending(null);
+    setMessages((current) => [
+      ...current,
+      { id: crypto.randomUUID(), role: "user", content: "✅ Onaylandı — sıradaki faza devam et.", createdAt: new Date().toISOString() }
+    ]);
+    try {
+      await api.post(`/api/runs/${id}/resume`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
     }
@@ -1692,7 +1949,7 @@ function App() {
         <div className="brand">
           <img src="/logo.png" alt="Orkestra Logo" className="logo" />
           <strong>Orkestra</strong>
-          <span>v2.0 Chat</span>
+          <span>v2.2</span>
         </div>
         <div className="viewSwitcher">
           <button
@@ -1852,6 +2109,11 @@ function App() {
                   onContinueChat={() => { setNotice(null); setCodeDebateDone(false); }}
                   onOperatorBuild={() => void operatorBuild()}
                   debateDone={codeDebateDone}
+                  operatorAnalyzing={operatorAnalyzing}
+                  phasePending={!!phasePending && phasePending === activeRun?.id}
+                  onResumePhase={() => void resumePhase()}
+                  codingActive={codingActive}
+                  onExitCoding={() => setCodingActive(false)}
                   participantSources={participantSources}
                   participants={participants}
                   onParticipantsChange={setParticipants}
@@ -2990,15 +3252,6 @@ function AnalysisCard({
     })
     .filter((b) => b.title && !/code task brief|operatör/i.test(b.title));
 
-  const renderBody = (body: string) =>
-    body
-      .split(/\r?\n/)
-      .map((line) => line.replace(/^[-*]\s+/, "").trim())
-      .filter(Boolean)
-      .map((line, i) => (
-        <li key={i}>{line.replace(/\*\*/g, "")}</li>
-      ));
-
   return (
     <div className="analysisCard">
       <div className="analysisHead">
@@ -3006,23 +3259,40 @@ function AnalysisCard({
         <strong>{modelLabel ?? text.operatorAnalysis}</strong>
       </div>
       {blocks.length ? (
-        <div className="analysisGrid">
-          {blocks.map((b, i) => {
-            const theme = themeFor(b.title);
-            const Icon = theme.icon;
-            return (
-              <section className={`analysisSection ${theme.tone}`} key={i}>
-                <header>
-                  <Icon size={14} />
-                  <span>{b.title}</span>
-                </header>
-                <ul>{renderBody(b.body)}</ul>
-              </section>
-            );
-          })}
+        <div className="analysisAccordion">
+          {blocks.map((b, i) => (
+            <AnalysisAccordionItem key={i} title={b.title} body={b.body} defaultOpen={false} />
+          ))}
         </div>
       ) : (
         <pre className="analysisRaw">{content}</pre>
+      )}
+    </div>
+  );
+}
+
+// Tek bölüm: kapalıyken ikon + başlık + madde sayısı + önizleme; tıklanınca maddeler açılır.
+function AnalysisAccordionItem({ title, body, defaultOpen }: { title: string; body: string; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(Boolean(defaultOpen));
+  const theme = themeFor(title);
+  const Icon = theme.icon;
+  const items = body
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^[-*]\s+/, "").replace(/\*\*/g, "").trim())
+    .filter(Boolean);
+  const preview = items.join(" · ");
+  return (
+    <div className={`accItem ${theme.tone}${open ? " open" : ""}`}>
+      <button className="accHead" onClick={() => setOpen((o) => !o)}>
+        <Icon size={14} className="accIcon" />
+        <span className="accTitle">{title}</span>
+        {items.length > 0 && <span className="accCount">{items.length}</span>}
+        {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+      </button>
+      {open ? (
+        <ul className="accBody">{items.map((it, i) => <li key={i}>{it}</li>)}</ul>
+      ) : (
+        preview && <div className="accPreview">{preview}</div>
       )}
     </div>
   );
@@ -3585,14 +3855,18 @@ function AgentActivitySection({
     .reverse();
   const lastFile = [...events].reverse().find((e) => e.type.startsWith("file_"));
   const currentFile = lastFile ? parseFileChange(lastFile).path : null;
+  // Ajanın o an ne yaptığı (en son agent_step mesajı): "Claude ✍️ kodluyor: ...".
+  const lastStep = [...events].reverse().find((e) => e.type === "agent_step")?.message?.replace(/\s+/g, " ") ?? null;
 
   return (
     <div className="agentActivitySection">
       {running && (
         <div className="liveProgress">
           <span className="liveSpinner" />
-          <span className="liveLabel">{text.working}</span>
-          {currentFile && <span className="liveFile">{currentFile}</span>}
+          <div className="liveProgressText">
+            <span className="liveLabel">{lastStep ?? text.working}</span>
+            {currentFile && <span className="liveFile">{currentFile}</span>}
+          </div>
         </div>
       )}
       {feed.length > 0 && (
@@ -4182,7 +4456,8 @@ function CodeChatPanel({
   selectedEffort, onEffortChange, selectedDetailLevel, onDetailLevelChange,
   mode, onModeChange, multiAvailable, cliOptions, singleCli, onSingleCliChange,
   thinking, onModelChange, onChange, onSend, onClear, onCreateBrief, onCreatePlan, onStart,
-  onContinueChat, onOperatorBuild, debateDone,
+  onContinueChat, onOperatorBuild, debateDone, operatorAnalyzing, phasePending, onResumePhase,
+  codingActive, onExitCoding,
   participantSources, participants, onParticipantsChange, debateRounds, onRoundsChange,
   operatorSel, onOperatorChange, analysisReady,
   runActive, onAddNote, onStopRun,
@@ -4217,6 +4492,11 @@ function CodeChatPanel({
   onContinueChat: () => void;
   onOperatorBuild: () => void;
   debateDone: boolean;
+  operatorAnalyzing: string | null;
+  phasePending: boolean;
+  onResumePhase: () => void;
+  codingActive: boolean;
+  onExitCoding: () => void;
   participantSources: { cli: DebateParticipant; label: string; models: ModelOption[] }[];
   participants: { cli: DebateParticipant; model: string }[];
   onParticipantsChange: (next: { cli: DebateParticipant; model: string }[]) => void;
@@ -4381,7 +4661,38 @@ function CodeChatPanel({
             </article>
           )
         )}
-        {debateDone && !runActive && (
+        {/* Canlı aktivite (yapılan değişiklikler) mesajların hemen altında, aksiyon barlarının ÜSTÜNDE.
+            Faz onayı beklerken spinner gösterme (run "awaiting" durumunda stale "kodluyor" çıkmasın). */}
+        {run && <AgentActivitySection events={events} language={language} onOpenFile={onOpenFile} running={runActive && !phasePending} />}
+        {operatorAnalyzing && (
+          <div className="operatorAnalyzing">
+            <span className="liveSpinner" />
+            <Target size={14} />
+            <span>{text.operatorAnalyzingLabel} · {operatorAnalyzing}</span>
+          </div>
+        )}
+        {thinking && (
+          <article className="chatBubble assistant thinking compact">
+            <div className="typingDots"><span /><span /><span /></div>
+          </article>
+        )}
+        {/* Aksiyon barları EN ALTTA: faz onayı veya tartışma-sonrası 3 buton. */}
+        {phasePending && (
+          <div className="phasePendingBar">
+            <span className="phasePendingHint">{text.phaseDoneHint}</span>
+            <button className="analysisActionBtn operator" onClick={onResumePhase}>
+              <Play size={14} />
+              {text.phaseContinue}
+            </button>
+            <button className="analysisActionBtn" onClick={onStopRun}>
+              <X size={14} />
+              {text.stop}
+            </button>
+          </div>
+        )}
+        {/* 3 buton: analiz kartı VARSA (operatöre/ekibe kart olmadan iş verilmesin), çalışma/kodlama/analiz
+            yokken. codeDebateDone'a bağlı değil → oturum değişip dönünce kart varsa bar yine görünür. */}
+        {!runActive && !codingActive && !operatorAnalyzing && messages.some((m) => m.planner === "analysis") && (
           <DebateActionBar
             language={language}
             onContinueChat={() => { onContinueChat(); composerRef.current?.focus(); composerRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }); }}
@@ -4389,16 +4700,19 @@ function CodeChatPanel({
             onTeamWork={onCreatePlan}
           />
         )}
-        {run && <AgentActivitySection events={events} language={language} onOpenFile={onOpenFile} running={runActive} />}
-        {thinking && (
-          <article className="chatBubble assistant thinking compact">
-            <div className="typingDots"><span /><span /><span /></div>
-          </article>
-        )}
         <div ref={bottomRef} />
       </div>
 
       <div className="codeChatComposer">
+        {codingActive && (
+          <div className="codingModeBar">
+            <span className="codingModeHint">⌨️ {text.codingModeHint}</span>
+            <button className="ghostButton" onClick={onExitCoding} title={text.backToDebateTitle}>
+              <Swords size={13} />
+              {text.backToDebate}
+            </button>
+          </div>
+        )}
         <div className="codeChatComposerRow">
           <div className="modeSwitch compact">
             {(["single", "multi", "debate"] as ChatMode[]).map((item) => {
@@ -4598,9 +4912,11 @@ function BrowserPreview({ run, language, onClose }: { run: Run | null; language:
   const [refreshKey, setRefreshKey] = useState(0);
   const [entry, setEntry] = useState<string | null>(null);
   const [previewAvailable, setPreviewAvailable] = useState(false);
-  // Göreli URL: dev'de Vite proxy (/preview, /preview-entry → 8787), prod'da aynı origin.
-  // Mutlak cross-origin URL CORS'a takılıp önizlemeyi boş bırakıyordu.
-  const previewUrl = run && entry ? `/preview/${run.id}/${entry}` : null;
+  // DOĞRUDAN backend (8787): göreli URL Vite SPA fallback'ine düşüp Orkestra arayüzünü gösteriyordu.
+  // CORS backend'de açık. localhost→127.0.0.1 (IPv6 ::1 bağlantı reddini önler).
+  const backendHost = window.location.hostname === "localhost" ? "127.0.0.1" : window.location.hostname;
+  const backendOrigin = `${window.location.protocol}//${backendHost}:8787`;
+  const previewUrl = run && entry ? `${backendOrigin}/preview/${run.id}/${entry}` : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -4609,7 +4925,7 @@ function BrowserPreview({ run, language, onClose }: { run: Run | null; language:
       setPreviewAvailable(false);
       return;
     }
-    fetch(`/preview-entry/${run.id}`, { cache: "no-store" })
+    fetch(`${backendOrigin}/preview-entry/${run.id}`, { cache: "no-store" })
       .then((response) => (response.ok ? response.json() : null))
       .then((data: { entry?: string } | null) => {
         if (cancelled) return;

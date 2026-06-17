@@ -1,5 +1,5 @@
-import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { spawn, execFile } from "node:child_process";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import type { Agent, PlanTask, Run, RunEventType } from "../../../packages/shared/types";
 import { interpolateArgs } from "./template";
@@ -15,7 +15,13 @@ const textExtensions = new Set([
   ".py", ".rb", ".go", ".rs", ".java", ".c", ".cpp", ".h", ".sh", ".yml", ".yaml", ".xml", ".svg", ".vue", ".php"
 ]);
 
-type RunControl = { notes: string[]; stop: boolean; child?: ReturnType<typeof spawnCommand> };
+type RunControl = {
+  notes: string[];
+  stop: boolean;
+  // TÜM aktif çocuk süreçler (paralel ajanlar). Durdurmada hepsi öldürülür.
+  children: Set<ReturnType<typeof spawnCommand>>;
+  resume?: () => void; // faz onayı: kullanıcı "devam et" deyince bir sonraki faza geçer
+};
 
 export class Runner {
   private controls = new Map<string, RunControl>();
@@ -26,67 +32,155 @@ export class Runner {
   ) {}
 
   start(run: Run) {
-    this.controls.set(run.id, { notes: [], stop: false });
+    this.controls.set(run.id, { notes: [], stop: false, children: new Set() });
     void this.execute(run);
   }
 
   // Ekip modu: alt-görevleri bağımlılığa göre çalıştırır (bağımsızlar paralel).
   startTeam(run: Run, tasks: PlanTask[]) {
-    this.controls.set(run.id, { notes: [], stop: false });
+    this.controls.set(run.id, { notes: [], stop: false, children: new Set() });
     void this.executeTeam(run, tasks);
+  }
+
+  // Faz onayı: kullanıcı "devam et" dediğinde bir sonraki faz başlar.
+  // Canlı bekleyen promise varsa onu serbest bırakır; yoksa (durduruldu/sunucu yeniden başladı)
+  // diske kalıcı yazılan faz state'inden kaldığı yeri YENİDEN ayağa kaldırır.
+  resumeRun(runId: string): boolean {
+    const control = this.controls.get(runId);
+    if (control?.resume) {
+      const fn = control.resume;
+      control.resume = undefined;
+      fn();
+      return true;
+    }
+    // Kalıcı state'ten devam (canlı bekleyen yoksa).
+    const run = this.store.getRun(runId);
+    if (!run) return false;
+    const state = loadPhaseState(run.workspacePath);
+    if (!state || state.nextPhaseIndex == null || state.nextPhaseIndex >= (state.tasks ? new Set(state.tasks.map((t) => t.phase ?? 1)).size : 0)) {
+      return false;
+    }
+    this.controls.set(runId, { notes: [], stop: false, children: new Set() });
+    this.store.updateRun(runId, { status: "running", activeStep: `resuming phase ${state.nextPhaseIndex + 1}`, completedAt: null });
+    this.emit(runId, "started", `▶️ Faz ${state.nextPhaseIndex + 1} kaldığı yerden başlatılıyor.`);
+    void this.runPhasesFrom(run, state.tasks, new Map(state.done ?? []), state.nextPhaseIndex);
+    return true;
   }
 
   private async executeTeam(run: Run, tasks: PlanTask[]) {
     this.store.updateRun(run.id, { status: "running", activeStep: "team: planning" });
-    // Tek görev = operatör/tek ajan çalışması; çoğul = ekip çalışması.
-    const startMsg = tasks.length === 1
-      ? "Operatör projeyi yapıyor."
-      : `Ekip çalışması başladı (${tasks.length} görev).`;
+    const startMsg = tasks.length === 1 ? "Operatör projeyi yapıyor." : `Ekip çalışması başladı (${tasks.length} görev).`;
     this.emit(run.id, "started", startMsg);
     try {
       mkdirSync(run.workspacePath, { recursive: true });
       writeFileSync(join(run.workspacePath, "PROMPT.md"), run.prompt, "utf8");
       this.emit(run.id, "file_created", "PROMPT.md", null, JSON.stringify({ path: "PROMPT.md", adds: 0, dels: 0 }));
-
-      const done = new Map<string, string>(); // taskId -> output
-      const remaining = [...tasks];
-      const control = this.controls.get(run.id);
-
-      while (remaining.length) {
-        if (control?.stop) {
-          this.store.updateRun(run.id, { status: "failed", activeStep: "stopped", completedAt: new Date().toISOString(), summary: "Kullanıcı tarafından durduruldu." });
-          this.emit(run.id, "failed", "Ekip çalışması kullanıcı tarafından durduruldu.");
-          this.controls.delete(run.id);
-          return;
-        }
-        // Bağımlılıkları tamamlanmış görevler bu turda paralel koşar.
-        const ready = remaining.filter((t) => (t.dependsOn ?? []).every((d) => done.has(d)));
-        if (!ready.length) {
-          this.emit(run.id, "failed", "Çözülemeyen görev bağımlılığı (döngü?). Kalan görevler atlandı.");
-          break;
-        }
-        this.store.updateRun(run.id, { activeStep: `team: ${ready.map((t) => t.id).join(", ")}` });
-        const results = await Promise.all(ready.map((task) => this.runTeamTask(run, task, done)));
-        results.forEach((res, i) => done.set(ready[i].id, res));
-        for (const task of ready) {
-          const index = remaining.findIndex((t) => t.id === task.id);
-          if (index >= 0) remaining.splice(index, 1);
-        }
-      }
-
-      const transcript = tasks.map((t) => `## ${t.title} (${t.id})\n${done.get(t.id) ?? "(çalışmadı)"}`).join("\n\n");
-      writeFileSync(join(run.workspacePath, "TRANSCRIPT.md"), transcript, "utf8");
-      this.emit(run.id, "file_created", "TRANSCRIPT.md", null, JSON.stringify({ path: "TRANSCRIPT.md", adds: 0, dels: 0 }));
-      const doneMsg = tasks.length === 1 ? "Operatör projeyi tamamladı." : "Ekip çalışması tamamlandı.";
-      this.store.updateRun(run.id, { status: "completed", activeStep: "completed", completedAt: new Date().toISOString(), summary: doneMsg });
-      this.emit(run.id, "completed", doneMsg);
+      await this.runPhasesFrom(run, tasks, new Map(), 0);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.store.updateRun(run.id, { status: "failed", activeStep: "failed", completedAt: new Date().toISOString(), summary: message });
       this.emit(run.id, "failed", message);
+      this.controls.delete(run.id);
+    }
+  }
+
+  // Fazları startIndex'ten itibaren çalıştırır. Her faz arası onay bekler ve ilerlemeyi
+  // diske KALICI yazar (.orkestra-phase.json) → durdurma/yeniden başlatma sonrası resume edilebilir.
+  private async runPhasesFrom(run: Run, tasks: PlanTask[], done: Map<string, string>, startIndex: number) {
+    const control = this.controls.get(run.id);
+    const clean = (s: string) => s.replace(/\s+/g, " ").trim();
+    const phases = [...new Set(tasks.map((t) => t.phase ?? 1))].sort((a, b) => a - b);
+    const multiPhase = phases.length > 1;
+
+    try {
+      for (let pi = startIndex; pi < phases.length; pi++) {
+        const phaseNo = phases[pi];
+        const phaseTasks = tasks.filter((t) => (t.phase ?? 1) === phaseNo);
+        if (multiPhase) this.emit(run.id, "agent_step", `🚀 Faz ${phaseNo}/${phases.length} başlıyor (${phaseTasks.length} görev).`);
+
+        const stopped = await this.executePhaseTasks(run, phaseTasks, done, control);
+        if (stopped) {
+          // Faz İÇİNDE durduruldu → bu faz yarım kalmış olabilir; resume'da BU fazı (pi) tekrar
+          // çalıştır (ajanlar mevcut dosyaları görüp tamamlar). State korunur.
+          savePhaseState(run.workspacePath, { tasks, done: [...done], nextPhaseIndex: pi });
+          return;
+        }
+
+        const phaseLines = phaseTasks.map((t) => `• ${t.title}`).join("\n");
+        const lastPhase = pi === phases.length - 1;
+
+        if (multiPhase && !lastPhase) {
+          // İlerlemeyi kalıcı yaz, sonra onay bekle.
+          savePhaseState(run.workspacePath, { tasks, done: [...done], nextPhaseIndex: pi + 1 });
+          const report = `✅ Faz ${phaseNo}/${phases.length} tamamlandı:\n${phaseLines}\n\nOnaylıyorsanız sıradaki faza devam edeyim mi?`;
+          this.store.updateRun(run.id, { activeStep: `phase ${phaseNo} done — awaiting` });
+          this.emit(run.id, "phase_done", report);
+          await new Promise<void>((resolve) => {
+            if (control) control.resume = resolve;
+            else resolve();
+          });
+          if (control?.stop) {
+            // Durdurma: state korunur (sonra "devam et" ile yine açılabilir). Run "stopped" işaretlenir.
+            this.store.updateRun(run.id, { status: "failed", activeStep: "stopped", completedAt: new Date().toISOString(), summary: "Duraklatıldı — 'devam et' ile sürdürülebilir." });
+            this.emit(run.id, "failed", "⏸️ Duraklatıldı. 'Sıradaki faza devam et' ile kaldığı yerden sürebilirsin.");
+            this.controls.delete(run.id);
+            return;
+          }
+        }
+      }
+
+      // Tüm fazlar bitti → tamamlandı, kalıcı state temizlenir.
+      const transcript = tasks.map((t) => `## ${t.title} (${t.id})\n${done.get(t.id) ?? "(çalışmadı)"}`).join("\n\n");
+      writeFileSync(join(run.workspacePath, "TRANSCRIPT.md"), transcript, "utf8");
+      this.emit(run.id, "file_created", "TRANSCRIPT.md", null, JSON.stringify({ path: "TRANSCRIPT.md", adds: 0, dels: 0 }));
+      clearPhaseState(run.workspacePath);
+
+      let report: string;
+      if (tasks.length === 1) {
+        const out = clean(done.get(tasks[0].id) ?? "");
+        report = out ? `✅ Operatör projeyi tamamladı.\n\n${out.slice(0, 700)}` : "✅ Operatör projeyi tamamladı.";
+      } else {
+        const lines = tasks.map((t) => `• ${t.title}`).join("\n");
+        report = `✅ Ekip çalışması tamamlandı (${tasks.length} görev):\n${lines}\n\nOnaylıyorsanız yeni bir talimatla devam edebilirim.`;
+      }
+      this.store.updateRun(run.id, { status: "completed", activeStep: "completed", completedAt: new Date().toISOString(), summary: report });
+      this.emit(run.id, "completed", report);
     } finally {
       this.controls.delete(run.id);
     }
+  }
+
+  // Bir fazın görevlerini bağımlılığa göre (bağımsızlar paralel) çalıştırır.
+  // Durdurulduysa true döner.
+  private async executePhaseTasks(run: Run, phaseTasks: PlanTask[], done: Map<string, string>, control?: RunControl): Promise<boolean> {
+    const remaining = [...phaseTasks];
+    const phaseIds = new Set(phaseTasks.map((t) => t.id));
+    while (remaining.length) {
+      if (control?.stop) {
+        this.store.updateRun(run.id, { status: "failed", activeStep: "stopped", completedAt: new Date().toISOString(), summary: "Duraklatıldı — 'devam et' ile sürdürülebilir." });
+        this.emit(run.id, "failed", "⏸️ Duraklatıldı. 'Sıradaki faza devam et' ile kaldığı yerden sürdürebilirsin.");
+        this.controls.delete(run.id);
+        return true;
+      }
+      // Bağımlılıkları (bu faz içinde) tamamlanmış görevler paralel koşar.
+      const ready = remaining.filter((t) => (t.dependsOn ?? []).filter((d) => phaseIds.has(d)).every((d) => done.has(d)));
+      if (!ready.length) {
+        this.emit(run.id, "failed", "Çözülemeyen görev bağımlılığı (döngü?). Kalan görevler atlandı.");
+        break;
+      }
+      this.store.updateRun(run.id, { activeStep: `team: ${ready.map((t) => t.id).join(", ")}` });
+      const roles = new Set(ready.map((t) => t.role ?? "builder"));
+      if (roles.has("reviewer")) this.emit(run.id, "agent_step", "🔍 Kodlama bitti — kod amaca uygunluk açısından denetleniyor…");
+      else if (roles.has("fixer")) this.emit(run.id, "agent_step", "🔧 Tespit edilen sorunlar ayıklanıyor / düzeltiliyor…");
+      else if (ready.length > 1) this.emit(run.id, "agent_step", `✍️ ${ready.length} görev paralel kodlanıyor…`);
+      const results = await Promise.all(ready.map((task) => this.runTeamTask(run, task, done)));
+      results.forEach((res, i) => done.set(ready[i].id, res));
+      for (const task of ready) {
+        const index = remaining.findIndex((t) => t.id === task.id);
+        if (index >= 0) remaining.splice(index, 1);
+      }
+    }
+    return false;
   }
 
   private async runTeamTask(run: Run, task: PlanTask, done: Map<string, string>): Promise<string> {
@@ -125,9 +219,12 @@ export class Runner {
     // Faz 5: birincil ajan + yedek zinciri. Limit/hata olursa yedeğe devret.
     // Dosyalar workspace'te kaldığı için yeni ajan kaldığı yerden devam eder.
     const chain = this.buildAgentChain(primary);
+    const ctrl = this.controls.get(run.id);
     let lastError = "";
     for (let i = 0; i < chain.length; i++) {
       const agent = chain[i];
+      // Durduruldu → yedek ajan başlatma, hemen çık.
+      if (ctrl?.stop) return "(durduruldu)";
       // Güncel durum: bu ajan bu sırada limite takıldıysa atla.
       if (this.store.getAgent(agent.id)?.status === "limited") {
         this.emit(run.id, "limit_detected", `${agent.name} limitli, atlanıyor.`, agent.id);
@@ -136,7 +233,9 @@ export class Runner {
       if (i > 0) {
         this.emit(run.id, "fallback_used", `${chain[0].name} başarısız/limitli → ${agent.name} devraldı.`, agent.id);
       }
-      this.emit(run.id, "agent_step", `${agent.name} → ${task.title}`, agent.id);
+      // Rol-bazlı, kullanıcının anlayacağı kısa durum: ne yapılıyor.
+      const verb = role === "reviewer" ? "🔍 denetliyor" : role === "fixer" ? "🔧 düzeltiyor" : "✍️ kodluyor";
+      this.emit(run.id, "agent_step", `${agent.name} ${verb}: ${task.title}`, agent.id);
       try {
         return await this.runAgent(agent, run, "", [], { cwd, promptText });
       } catch (error) {
@@ -177,12 +276,12 @@ export class Runner {
     const control = this.controls.get(runId);
     if (!control) return false;
     control.stop = true;
-    try {
-      control.child?.kill();
-    } catch {
-      // süreç zaten bitmiş olabilir
-    }
-    this.emit(runId, "agent_step", "Kullanıcı durdurma istedi.", null);
+    // Faz onayı bekliyorsa serbest bırak (durdurma kontrolüne düşsün).
+    if (control.resume) { const r = control.resume; control.resume = undefined; r(); }
+    // TÜM paralel ajan süreçlerini ANINDA öldür (sadece sonuncuyu değil).
+    for (const child of control.children) killProcessTree(child);
+    control.children.clear();
+    this.emit(runId, "agent_step", "🛑 Durduruldu.", null);
     return true;
   }
 
@@ -341,7 +440,7 @@ export class Runner {
         // stdin yazılamazsa süreç zaten başlamamış olabilir
       }
       const control = this.controls.get(run.id);
-      if (control) control.child = child;
+      if (control) control.children.add(child);
 
       let output = "";
       const timeout = setTimeout(() => {
@@ -368,6 +467,7 @@ export class Runner {
       child.on("error", (error) => {
         clearTimeout(timeout);
         clearInterval(fileWatch);
+        control?.children.delete(child);
         this.store.setAgentStatus(agent.id, "available");
         reject(error);
       });
@@ -375,6 +475,7 @@ export class Runner {
       child.on("close", (code) => {
         clearTimeout(timeout);
         clearInterval(fileWatch);
+        control?.children.delete(child);
         reportFileChanges();
         const current = this.store.getAgent(agent.id);
         if (current?.status !== "limited") this.store.setAgentStatus(agent.id, "available");
@@ -457,12 +558,55 @@ function adHocAgent(cli: string, model: string | undefined, role: string): Agent
     command,
     argsTemplate,
     enabled: true,
-    timeoutSeconds: 600,
+    timeoutSeconds: 300,
     fallbackAgentIds: [],
     limitPatterns: ["limit", "quota", "rate_limit", "429", "exhausted"],
     status: "available",
     lastLimitedAt: null
   };
+}
+
+// ─── Kalıcı faz state (.orkestra-phase.json) — durdurma/yeniden başlatma sonrası resume için ───
+type PhaseState = { tasks: PlanTask[]; done: [string, string][]; nextPhaseIndex: number };
+function phaseStateFile(workspacePath: string) {
+  return join(workspacePath, ".orkestra-phase.json");
+}
+function savePhaseState(workspacePath: string, state: PhaseState) {
+  try {
+    writeFileSync(phaseStateFile(workspacePath), JSON.stringify(state), "utf8");
+  } catch {
+    // yazılamazsa sessiz geç (resume canlı promise üzerinden yine çalışır)
+  }
+}
+function loadPhaseState(workspacePath: string): PhaseState | null {
+  try {
+    return JSON.parse(readFileSync(phaseStateFile(workspacePath), "utf8")) as PhaseState;
+  } catch {
+    return null;
+  }
+}
+function clearPhaseState(workspacePath: string) {
+  try {
+    unlinkSync(phaseStateFile(workspacePath));
+  } catch {
+    // yoksa sorun değil
+  }
+}
+
+// Süreç AĞACINI öldürür. Windows'ta CLI shell (cmd.exe) altında torun süreç olduğundan
+// child.kill() yetmez; taskkill /T ile tüm ağaç anında sonlandırılır.
+function killProcessTree(child?: ReturnType<typeof spawnCommand>) {
+  if (!child || child.pid == null) return;
+  const pid = child.pid;
+  try {
+    if (process.platform === "win32") {
+      execFile("taskkill", ["/pid", String(pid), "/T", "/F"], () => {});
+    } else {
+      try { process.kill(-pid, "SIGKILL"); } catch { child.kill("SIGKILL"); }
+    }
+  } catch {
+    try { child.kill(); } catch { /* zaten bitmiş olabilir */ }
+  }
 }
 
 function quoteWindowsShellArg(value: string) {

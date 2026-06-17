@@ -11,6 +11,7 @@ import { EventHub } from "./events";
 import { Runner } from "./runner";
 import { GitService } from "./git";
 import {
+  analyzeDebate,
   detectPipelineIntent,
   generateBrief,
   generatePlan,
@@ -112,7 +113,7 @@ app.post<{
     model?: string;
     effort?: EffortLevel;
     detailLevel?: "low" | "medium" | "high";
-    operator?: ChatParticipant;
+    skipClosing?: boolean;
   };
 }>("/api/debate", async (request, reply) => {
   const message = request.body.message?.trim();
@@ -131,7 +132,6 @@ app.post<{
   });
 
   try {
-    const operator = request.body.operator?.cli ? { cli: request.body.operator.cli, model: request.body.operator.model } : undefined;
     for await (const event of runDebate(
       participants,
       message,
@@ -140,7 +140,7 @@ app.post<{
       request.body.model,
       request.body.effort,
       request.body.detailLevel,
-      operator
+      request.body.skipClosing
     )) {
       reply.raw.write(`${JSON.stringify(event)}\n`);
     }
@@ -151,6 +151,39 @@ app.post<{
   reply.raw.end();
 });
 
+// Operatör analizi (tartışma sonrası, STREAM'den bağımsız normal POST → JSON).
+// Code modunda tartışma bitince frontend bunu çağırır; her zaman geçerli kart döner.
+app.post<{
+  Body: {
+    message?: string;
+    turns?: Array<{ cli?: string; modelLabel?: string; content?: string }>;
+    participants?: Array<ChatParticipant | "claude" | "codex" | "antigravity">;
+    operator?: ChatParticipant;
+    model?: string;
+    effort?: EffortLevel;
+  };
+}>("/api/analyze", async (request, reply) => {
+  const message = request.body.message?.trim();
+  const rawTurns = request.body.turns ?? [];
+  if (!message || !rawTurns.length) return reply.code(400).send({ error: "message and turns are required" });
+
+  const turns = rawTurns
+    .filter((t) => t.content?.trim())
+    .map((t) => ({ planner: (t.cli ?? "claude") as any, modelLabel: t.modelLabel ?? t.cli ?? "Ajan", content: t.content!.trim() }));
+  if (!turns.length) return reply.code(400).send({ error: "no valid turns" });
+
+  const participants = (request.body.participants ?? []).map((p) =>
+    typeof p === "string" ? { cli: p } : { cli: p.cli, model: p.model }
+  );
+  const op = request.body.operator?.cli
+    ? { cli: request.body.operator.cli, model: request.body.operator.model }
+    : participants[0];
+  if (!op) return reply.code(400).send({ error: "no operator/participant" });
+
+  const result = await analyzeDebate(participants as any, op as any, message, turns, request.body.model, request.body.effort);
+  return result;
+});
+
 // Sohbetten Code Task Brief uretir (Chat -> Code gecisi). Kullanici duzenleyip onaylar.
 app.post<{ Body: { history?: ChatMessage[]; message?: string; planner?: "claude" | "codex" | "antigravity" | "auto" } }>(
   "/api/brief",
@@ -159,11 +192,18 @@ app.post<{ Body: { history?: ChatMessage[]; message?: string; planner?: "claude"
   }
 );
 
-// Plancı projeyi alt-görevlere böler (ekip modu için). Kullanıcı düzenleyip onaylar.
-app.post<{ Body: { history?: ChatMessage[]; message?: string; planner?: "claude" | "codex" | "antigravity" | "auto" } }>(
+// Plancı projeyi alt-görevlere böler + FAZLARA ayırır (operatör analizini dikkate alarak).
+// Fazları icra eden ajan belirler: operatör/ekip lideri (planner+model). Kullanıcı düzenleyip onaylar.
+app.post<{ Body: { history?: ChatMessage[]; message?: string; planner?: "claude" | "codex" | "antigravity" | "auto"; analysis?: string; model?: string } }>(
   "/api/plan",
   async (request) => {
-    return generatePlan(request.body.history ?? [], request.body.message, request.body.planner ?? "auto");
+    return generatePlan(
+      request.body.history ?? [],
+      request.body.message,
+      request.body.planner ?? "auto",
+      request.body.analysis,
+      request.body.model
+    );
   }
 );
 
@@ -319,6 +359,13 @@ app.post<{ Params: { id: string }; Body: { note?: string } }>("/api/runs/:id/not
 app.post<{ Params: { id: string } }>("/api/runs/:id/stop", async (request, reply) => {
   const ok = runner.stop(request.params.id);
   if (!ok) return reply.code(409).send({ error: "Run is not active." });
+  return { ok: true };
+});
+
+// Faz onayı: kullanıcı "devam et" deyince bir sonraki faza geçer.
+app.post<{ Params: { id: string } }>("/api/runs/:id/resume", async (request, reply) => {
+  const ok = runner.resumeRun(request.params.id);
+  if (!ok) return reply.code(409).send({ error: "Run is not awaiting a phase confirmation." });
   return { ok: true };
 });
 
