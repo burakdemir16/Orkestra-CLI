@@ -52,18 +52,37 @@ const maxTerminalBuffer = 240_000;
 
 app.get("/api/health", async () => ({ ok: true }));
 
+// Eki tanımlar: görselse yolu ver (CLI okur), metin/kod dosyasıysa içeriğini prompt'a göm.
+const IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".ico"]);
+function describeAttachment(path: string): string {
+  const name = path.split(/[\\/]/).pop() || path;
+  const ext = extname(path).toLowerCase();
+  if (IMAGE_EXTS.has(ext)) return `Görsel: ${path}`;
+  try {
+    const content = readFileSync(path, "utf8").slice(0, 24000);
+    const lang = ext.replace(/^\./, "") || "";
+    return `Dosya \`${name}\` (${path}):\n\`\`\`${lang}\n${content}\n\`\`\``;
+  } catch {
+    return `Dosya: ${path}`;
+  }
+}
+
 // Chat'e eklenen gorseli diske yazar; donen yol prompt'a konup CLI'lar tarafindan okunur.
 app.post<{ Body: { name?: string; dataUrl?: string } }>("/api/upload", async (request, reply) => {
   const dataUrl = request.body.dataUrl ?? "";
   const match = /^data:(.+?);base64,(.*)$/s.exec(dataUrl);
   if (!match) return reply.code(400).send({ error: "Geçersiz dosya verisi." });
   const mime = match[1];
-  if (!mime.startsWith("image/")) return reply.code(400).send({ error: "Yalnızca görsel yüklenebilir." });
-  const ext = (mime.split("/")[1] || "png").replace(/[^a-z0-9]/gi, "").slice(0, 8);
-  const safeName = (request.body.name ?? "image").replace(/\.[^.]+$/, "").replace(/[^a-z0-9._-]/gi, "_").slice(0, 40) || "image";
-  const path = join(uploadsDir, `${randomUUID().slice(0, 8)}-${safeName}.${ext}`);
+  const isImage = mime.startsWith("image/");
+  // Orijinal dosya adını + uzantısını koru (txt, md, kod vb. de kabul).
+  const rawName = request.body.name ?? (isImage ? "image" : "file");
+  const safeName = rawName.replace(/[^a-z0-9._-]/gi, "_").slice(0, 60) || "file";
+  const hasExt = /\.[^.]+$/.test(safeName);
+  const fallbackExt = isImage ? (mime.split("/")[1] || "png").replace(/[^a-z0-9]/gi, "").slice(0, 8) : "txt";
+  const finalName = hasExt ? safeName : `${safeName}.${fallbackExt}`;
+  const path = join(uploadsDir, `${randomUUID().slice(0, 8)}-${finalName}`);
   writeFileSync(path, Buffer.from(match[2], "base64"));
-  return { path, name: safeName };
+  return { path, name: finalName, isImage };
 });
 
 app.post<{ Body: ChatRequest }>("/api/chat", async (request, reply) => {
@@ -72,7 +91,7 @@ app.post<{ Body: ChatRequest }>("/api/chat", async (request, reply) => {
 
   const attachments = (request.body.attachments ?? []).filter((path) => typeof path === "string" && path.trim());
   const augmentedMessage = attachments.length
-    ? `${message}\n\n[Ekli görsel dosyaları — bunları oku ve yanıtında dikkate al:\n${attachments.join("\n")}]`
+    ? `${message}\n\n[Ekli dosyalar — incele ve yanıtında dikkate al:\n${attachments.map((p) => describeAttachment(p)).join("\n\n")}]`
     : message;
   const result = await runPlannerChat(request.body.planner ?? "auto", augmentedMessage, request.body.history ?? [], request.body.model, request.body.effort, request.body.detailLevel, request.body.participants);
   const action = detectPipelineIntent(message) ? "suggest_pipeline" : "none";

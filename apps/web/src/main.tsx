@@ -23,6 +23,8 @@ import {
   LogOut,
   MessageCircle,
   MessageSquare,
+  MoreHorizontal,
+  Copy,
   Code,
   Terminal,
   ChevronDown,
@@ -32,6 +34,9 @@ import {
   Mic,
   PanelRightOpen,
   PanelRightClose,
+  PanelLeft,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pencil,
   Play,
   Plus,
@@ -160,7 +165,9 @@ const uiText = {
     regenerate: "Regenerate",
     cancel: "Cancel",
     approveBrief: "Approve and Send to Code",
-    agentCenter: "Agent Center",
+    agentCenter: "Limit Management",
+    collapseSidebar: "Collapse sidebar",
+    expandSidebar: "Expand sidebar",
     refresh: "Refresh",
     readingCli: "Reading CLI status...",
     ready: "Ready",
@@ -269,7 +276,23 @@ const uiText = {
     project: "Project",
     projects: "Projects",
     noProjectsDesc: "No projects yet. Create one or start from chat.",
+    searchPlaceholder: "Search…",
+    addModel: "Add Model",
+    fuseWith: "Fuse with",
+    operatorSelect: "Select operator",
+    auto: "Auto",
+    searchModels: "Search models…",
+    noResults: "No results.",
+    collapse: "Collapse",
+    expand: "Expand",
+    noSessionsYet: "No sessions yet.",
+    untitled: "Untitled",
+    chatHistoryTitle: "Past Chats",
+    showMore: "Show more",
     projectNamePrompt: "Project name:",
+    projectNamePlaceholder: "e.g. my-app",
+    create: "Create",
+    rename: "Rename",
     renameProject: "Rename project",
     renameProjectPrompt: "New project name (the real folder is renamed too):",
     activeProject: "Active project",
@@ -277,6 +300,7 @@ const uiText = {
     newProject: "New project",
     newProjectTitle: "Start a fresh project (resets workspace)",
     newSessionTitle: "New session in this project",
+    moreActions: "More",
     deleteProject: "Delete project",
     deleteProjectConfirm: "Delete this project from the list? (files are not deleted)",
     openInExplorer: "Open folder in file manager",
@@ -365,6 +389,10 @@ const uiText = {
     newPowerShell: "PowerShell",
     newCmd: "cmd",
     terminalPlaceholder: "Type a command and press Enter",
+    resizeTerminal: "Drag to resize",
+    newTerminalTitle: "New terminal",
+    copyMessage: "Copy",
+    copied: "Copied",
     noTerminal: "Open a PowerShell or cmd tab to start.",
     closeTerminal: "Close terminal",
     toggleTerminal: "Toggle terminal"
@@ -384,7 +412,9 @@ const uiText = {
     regenerate: "Yeniden üret",
     cancel: "İptal",
     approveBrief: "Onayla ve Code'a aktar",
-    agentCenter: "Ajan Merkezi",
+    agentCenter: "Limit Yönetimi",
+    collapseSidebar: "Paneli kapat",
+    expandSidebar: "Paneli aç",
     refresh: "Yenile",
     readingCli: "CLI durumu okunuyor...",
     ready: "Hazır",
@@ -493,7 +523,23 @@ const uiText = {
     project: "Proje",
     projects: "Projeler",
     noProjectsDesc: "Henüz proje yok. Oluştur ya da sohbetten başlat.",
+    searchPlaceholder: "Ara…",
+    addModel: "Model Ekle",
+    fuseWith: "Birleştir",
+    operatorSelect: "Operatör Seçimi",
+    auto: "Otomatik",
+    searchModels: "Model ara…",
+    noResults: "Sonuç yok.",
+    collapse: "Daralt",
+    expand: "Genişlet",
+    noSessionsYet: "Henüz oturum yok.",
+    untitled: "Başlıksız",
+    chatHistoryTitle: "Geçmiş Sohbetler",
+    showMore: "Daha fazla göster",
     projectNamePrompt: "Proje adı:",
+    projectNamePlaceholder: "örn. benim-uygulamam",
+    create: "Oluştur",
+    rename: "Yeniden adlandır",
     renameProject: "Projeyi yeniden adlandır",
     renameProjectPrompt: "Yeni proje adı (gerçek klasör de yeniden adlandırılır):",
     activeProject: "Aktif proje",
@@ -501,6 +547,7 @@ const uiText = {
     newProject: "Yeni Proje",
     newProjectTitle: "Sıfırdan yeni proje (workspace sıfırlanır)",
     newSessionTitle: "Bu projede yeni oturum",
+    moreActions: "Daha fazla",
     deleteProject: "Projeyi sil",
     deleteProjectConfirm: "Bu proje listeden silinsin mi? (dosyalar silinmez)",
     openInExplorer: "Klasörü dosya yöneticisinde aç",
@@ -590,6 +637,10 @@ const uiText = {
     newPowerShell: "PowerShell",
     newCmd: "cmd",
     terminalPlaceholder: "Komut yazıp Enter'a basın",
+    resizeTerminal: "Sürükleyerek boyutlandır",
+    newTerminalTitle: "Yeni terminal",
+    copyMessage: "Kopyala",
+    copied: "Kopyalandı",
     noTerminal: "Başlamak için PowerShell veya cmd sekmesi açın.",
     closeTerminal: "Terminali kapat",
     toggleTerminal: "Terminali aç/kapat"
@@ -628,6 +679,13 @@ const api = {
 type StoredConversation = { id: string; title: string; messages: ChatMessage[]; updatedAt: string; workspacePath?: string | null; projectId?: string | null; codingActive?: boolean; phasePendingRunId?: string | null };
 // Proje: kalıcı bir kod tabanı/klasör. Her projenin kendi oturum (konuşma) geçmişi olur.
 type Project = { id: string; name: string; workspacePath: string; createdAt: string };
+type TextPromptState = {
+  title: string;
+  placeholder?: string;
+  initial: string;
+  confirmLabel: string;
+  resolve: (value: string | null) => void;
+};
 const PROJECTS_KEY = "orkestra.projects";
 // Chat ve Code sekmelerinin geçmişleri ayrı saklanır.
 const CHAT_CONVERSATIONS_KEY = "orkestra.conversations.chat";
@@ -743,7 +801,7 @@ function App() {
   const setConversationId = isCodeView ? setCodeConvoId : setChatConvoId;
 
   const [chatInput, setChatInput] = useState("");
-  const [attachments, setAttachments] = useState<{ path: string; name: string; preview: string }[]>([]);
+  const [attachments, setAttachments] = useState<{ path: string; name: string; preview: string; isImage: boolean }[]>([]);
   const [selectedEffort, setSelectedEffort] = useState<"low" | "medium" | "high">("low");
   const [selectedDetailLevel, setSelectedDetailLevel] = useState<"low" | "medium" | "high">("high");
   // Paralel/Tartışma katılımcıları: aynı CLI'den farklı modeller ayrı katılımcı olabilir.
@@ -771,6 +829,20 @@ function App() {
   const [cliStatus, setCliStatus] = useState<CliStatusResponse | null>(null);
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Sol panel (sidebar) aç/kapa — ChatGPT tarzı; tercih localStorage'da saklanır.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => localStorage.getItem("orkestra.sidebarCollapsed") === "1");
+  useEffect(() => {
+    localStorage.setItem("orkestra.sidebarCollapsed", sidebarCollapsed ? "1" : "0");
+  }, [sidebarCollapsed]);
+  // Temalı metin giriş modalı (window.prompt yerine). Promise tabanlı: askText() açar, kullanıcı onaylayınca çözer.
+  const [textPrompt, setTextPrompt] = useState<TextPromptState | null>(null);
+  const askText = useCallback(
+    (opts: { title: string; placeholder?: string; initial?: string; confirmLabel: string }) =>
+      new Promise<string | null>((resolve) => {
+        setTextPrompt({ ...opts, initial: opts.initial ?? "", resolve });
+      }),
+    []
+  );
   const [briefOpen, setBriefOpen] = useState(false);
   const [briefText, setBriefText] = useState("");
   const [briefMeta, setBriefMeta] = useState<string | null>(null);
@@ -790,6 +862,16 @@ function App() {
   const [openFileTabs, setOpenFileTabs] = useState<OpenFileTab[]>([]);
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
   const [terminalOpen, setTerminalOpen] = useState(false);
+  // Terminal kolon genişliği (yatay sürükleyerek değiştirilebilir).
+  const [terminalWidth, setTerminalWidth] = useState<number>(() => {
+    const saved = Number(localStorage.getItem("orkestra.terminalWidth"));
+    return saved >= 300 && saved <= 820 ? saved : 440;
+  });
+  useEffect(() => {
+    localStorage.setItem("orkestra.terminalWidth", String(terminalWidth));
+  }, [terminalWidth]);
+  // Sürükleme sırasında grid geçişini kapatıp kasmayı önlemek için.
+  const [terminalResizing, setTerminalResizing] = useState(false);
   const [terminalSessions, setTerminalSessions] = useState<TerminalSessionInfo[]>([]);
   const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
   const [terminalOutputs, setTerminalOutputs] = useState<Record<string, string>>({});
@@ -813,15 +895,42 @@ function App() {
     [events]
   );
 
+  // Önizleme butonu yalnızca çalıştırılabilir bir giriş HTML'i (index.html vb.) bulununca görünür.
+  const [previewAvailable, setPreviewAvailable] = useState(false);
+  useEffect(() => {
+    if (!activeRun) {
+      setPreviewAvailable(false);
+      return;
+    }
+    let cancelled = false;
+    const host = window.location.hostname === "localhost" ? "127.0.0.1" : window.location.hostname;
+    const origin = `${window.location.protocol}//${host}:8787`;
+    fetch(`${origin}/preview-entry/${activeRun.id}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { entry?: string } | null) => {
+        if (!cancelled) setPreviewAvailable(Boolean(data?.entry));
+      })
+      .catch(() => {
+        if (!cancelled) setPreviewAvailable(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeRun?.id, workspaceFileEventCount]);
+
+  // Önizlenecek dosya yoksa açık önizlemeyi kapat.
+  useEffect(() => {
+    if (!previewAvailable) setShowPreview(false);
+  }, [previewAvailable]);
+
   // The planner sent to the API is derived from the active mode.
   const selectedPlanner: PlannerChoice = mode === "multi" ? "all" : mode === "debate" ? "debate" : singleCli;
 
-  // Katılımcılar varsayılan olarak her doğrulanmış CLI'den birer tane (default model).
+  // Katılımcılar OTOMATİK gelmez — kullanıcı "Model Ekle" ile seçer. Geçersizleri ayıkla.
   useEffect(() => {
     setParticipants((current) => {
       const validClis = verifiedTools.map((tool) => tool.id as DebateParticipant);
-      const kept = current.filter((p) => validClis.includes(p.cli));
-      return kept.length ? kept : validClis.map((cli) => ({ cli, model: "default" }));
+      return current.filter((p) => validClis.includes(p.cli));
     });
   }, [verifiedTools]);
 
@@ -836,6 +945,18 @@ function App() {
   useEffect(() => {
     if (cliOptions.length && !cliOptions.includes(singleCli)) setSingleCli(cliOptions[0]);
   }, [cliOptions, singleCli]);
+
+  // Tek Ajan: model "default" yerine seçili CLI'nin EN GELİŞMİŞ (ilk isimli) modeli gelsin.
+  useEffect(() => {
+    const src = participantSources.find((s) => s.cli === singleCli);
+    if (!src) return;
+    const valid = src.models.some((m) => m.id === selectedModel && m.id !== "default" && !m.limited);
+    if (!valid) {
+      const named = src.models.filter((m) => m.id !== "default");
+      const best = named.find((m) => !m.limited) ?? named[0];
+      setSelectedModel(best ? best.id : "default");
+    }
+  }, [singleCli, participantSources]);
 
   // Multi-agent and debate modes need at least two verified CLIs.
   useEffect(() => {
@@ -1003,6 +1124,22 @@ function App() {
     }
   }
 
+  // Belirli projede YENİ boş oturum aç (proje paneli "+").
+  function newSessionInProject(projectId: string) {
+    const proj = projects.find((p) => p.id === projectId);
+    if (!proj) return;
+    setActiveProjectId(projectId);
+    setProjectWorkspace(proj.workspacePath);
+    setActiveRun(null);
+    setEvents([]);
+    setCodeMessages([welcomeMessageFor(language)]);
+    setCodeConvoId(crypto.randomUUID());
+    setCodingActive(false);
+    setCodeDebateDone(false);
+    setLastAnalysis(null);
+    setPhasePending(null);
+  }
+
   function deleteProject(id: string) {
     setProjects((cur) => {
       const next = cur.filter((p) => p.id !== id);
@@ -1014,8 +1151,8 @@ function App() {
 
   // Sol panelden manuel proje klasörü oluştur (gerçek dizin) ve ona geç.
   async function createProject() {
-    const name = window.prompt(text.projectNamePrompt, "");
-    if (name === null) return;
+    const name = await askText({ title: text.projectNamePrompt, placeholder: text.projectNamePlaceholder, initial: "", confirmLabel: text.create });
+    if (name === null || !name.trim()) return;
     try {
       const res = await api.post<{ workspacePath: string; name: string }>("/api/projects/create", { name: name.trim() });
       const proj: Project = { id: crypto.randomUUID(), name: res.name, workspacePath: res.workspacePath, createdAt: new Date().toISOString() };
@@ -1043,7 +1180,7 @@ function App() {
   async function renameProject(id: string) {
     const proj = projects.find((p) => p.id === id);
     if (!proj) return;
-    const newName = window.prompt(text.renameProjectPrompt, proj.name);
+    const newName = await askText({ title: text.renameProjectPrompt, placeholder: text.projectNamePlaceholder, initial: proj.name, confirmLabel: text.rename });
     if (newName === null || !newName.trim() || newName.trim() === proj.name) return;
     try {
       const res = await api.post<{ workspacePath: string; name: string }>("/api/projects/rename", {
@@ -1235,8 +1372,8 @@ function App() {
       reader.readAsDataURL(file);
     });
     try {
-      const res = await api.post<{ path: string; name: string }>("/api/upload", { name: file.name, dataUrl });
-      setAttachments((current) => [...current, { path: res.path, name: res.name, preview: dataUrl }]);
+      const res = await api.post<{ path: string; name: string; isImage: boolean }>("/api/upload", { name: file.name, dataUrl });
+      setAttachments((current) => [...current, { path: res.path, name: res.name, preview: dataUrl, isImage: res.isImage }]);
     } catch (error) {
       setNotice(`${text.imageUploadFailed}: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -1943,54 +2080,80 @@ function App() {
     };
   }, [activeTerminalId, terminalOpen]);
 
-  return (
-    <main className="appShell">
-      <header className="appHeader">
-        <div className="brand">
+  const sidebarHeader = (
+    <div className="sidebarHeader">
+      <div className="brand">
+        <span className="brandMain">
           <img src="/logo.png" alt="Orkestra Logo" className="logo" />
           <strong>Orkestra</strong>
-          <span>v2.2</span>
+        </span>
+        <button className="iconButton sidebarCollapseBtn" onClick={() => setSidebarCollapsed(true)} title={text.collapseSidebar}>
+          <PanelLeft size={18} />
+        </button>
+      </div>
+      <div className="sidebarHeaderActions">
+        <button
+          className="iconButton themeToggle"
+          onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
+          title={theme === "light" ? text.switchDark : text.switchLight}
+          style={{ width: "32px", height: "32px", padding: 0 }}
+        >
+          {theme === "light" ? <Moon size={16} /> : <Sun size={16} />}
+        </button>
+        <div className="languageSwitch">
+          <button className={language === "en" ? "active" : ""} onClick={() => setLanguage("en")}>EN</button>
+          <button className={language === "tr" ? "active" : ""} onClick={() => setLanguage("tr")}>TR</button>
         </div>
-        <div className="viewSwitcher">
-          <button
-            className={activeView === "chat" ? "active" : ""}
-            onClick={() => setActiveView("chat")}
-          >
-            <MessageSquare size={16} />
-            <span>{text.tabChat}</span>
-          </button>
-          <button
-            className={activeView === "code" ? "active" : ""}
-            onClick={() => setActiveView("code")}
-          >
-            <Code size={16} />
-            <span>{text.tabCode}</span>
-          </button>
+        <div className={`connectionPill ${online ? "online" : "offline"}`} title={online ? text.connected : text.disconnected}>
+          <span />
         </div>
-        <div className="headerActions">
-          <button
-            className="iconButton themeToggle"
-            onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
-            title={theme === "light" ? text.switchDark : text.switchLight}
-            style={{ width: "32px", height: "32px", padding: 0 }}
-          >
-            {theme === "light" ? <Moon size={16} /> : <Sun size={16} />}
-          </button>
-          <div className="languageSwitch">
-            <button className={language === "en" ? "active" : ""} onClick={() => setLanguage("en")}>EN</button>
-            <button className={language === "tr" ? "active" : ""} onClick={() => setLanguage("tr")}>TR</button>
-          </div>
-          <div className={`connectionPill ${online ? "online" : "offline"}`}>
-            <span />
-            {online ? text.connected : text.disconnected}
-          </div>
-        </div>
-      </header>
+      </div>
+    </div>
+  );
 
-      <section className="workspace">
+  // Kapalı sidebar: dar ikon rayı — logo (üst) + erişim ikonları. Her iki modda da görünür.
+  const sidebarRail = (
+    // Ray'ın herhangi bir boş yerine tıklayınca da açılır.
+    <div className="sidebarRail" onClick={() => setSidebarCollapsed(false)}>
+      {/* Üstte logo; bara gelince aç/kapa tuşuna dönüşür. */}
+      <button className="railLogoBtn" onClick={() => setSidebarCollapsed(false)} title={text.expandSidebar}>
+        <img src="/logo.png" alt="Orkestra" className="railLogo" />
+        <PanelLeft size={20} className="railLogoToggle" />
+      </button>
+      <button className="railBtn" onClick={() => { setSidebarCollapsed(false); newChat(); }} title={text.newChat}>
+        <Plus size={18} />
+      </button>
+      <button className="railBtn" onClick={() => setSidebarCollapsed(false)} title={text.searchPlaceholder}>
+        <Search size={18} />
+      </button>
+      <div className="railSpacer" />
+      <button
+        className="railBtn"
+        onClick={(e) => { e.stopPropagation(); setTheme((t) => (t === "light" ? "dark" : "light")); }}
+        title={theme === "light" ? text.switchDark : text.switchLight}
+      >
+        {theme === "light" ? <Moon size={18} /> : <Sun size={18} />}
+      </button>
+    </div>
+  );
+
+  return (
+    <main className="appShell">
+      <section className={`workspace${sidebarCollapsed ? " sidebarCollapsed" : ""}`}>
         {activeView === "chat" ? (
           <>
-            <aside className="leftColumn">
+            <aside className={`leftColumn${sidebarCollapsed ? " collapsed" : ""}`}>
+              {sidebarCollapsed ? sidebarRail : (
+              <>
+              {sidebarHeader}
+              <ChatHistoryPanel
+                language={language}
+                sessions={chatConvos}
+                activeSessionId={chatConvoId}
+                onNew={newChat}
+                onOpen={openConversation}
+                onDelete={deleteConversation}
+              />
               <AgentCenter
                 language={language}
                 status={cliStatus}
@@ -1998,12 +2161,33 @@ function App() {
                 onRefresh={() => void refresh()}
                 onAction={(tool, action) => void runCliAction(tool, action)}
               />
+              </>
+              )}
             </aside>
 
             <section className="centerColumn">
+              <div className="centerColHeader">
+                <div className="viewSwitcher">
+                  <button
+                    className="active"
+                    onClick={() => setActiveView("chat")}
+                  >
+                    <MessageSquare size={16} />
+                    <span>{text.tabChat}</span>
+                  </button>
+                  <button
+                    className=""
+                    onClick={() => setActiveView("code")}
+                  >
+                    <Code size={16} />
+                    <span>{text.tabCode}</span>
+                  </button>
+                </div>
+              </div>
               <div className="chatWrap">
                 <ChatPanel
                   language={language}
+                  status={cliStatus}
                   messages={messages}
                   value={chatInput}
                   selectedPlanner={selectedPlanner}
@@ -2049,16 +2233,33 @@ function App() {
             </section>
           </>
         ) : (
-          <div className="codeLayout">
-            <aside className="codeLeftCol">
+          <div
+            className={`codeLayout${terminalOpen ? " termOpen" : ""}${sidebarCollapsed ? " sidebarCollapsed" : ""}${terminalResizing ? " resizing" : ""}`}
+            style={{ ["--term-w" as string]: `${terminalWidth}px` }}
+          >
+            <aside className={`codeLeftCol${sidebarCollapsed ? " collapsed" : ""}`}>
+              {sidebarCollapsed ? sidebarRail : (
+              <>
+              {sidebarHeader}
+              <FileExplorer
+                language={language}
+                rootPath={activeRun?.workspacePath ?? projectWorkspace ?? null}
+                refreshKey={workspaceFileEventCount}
+                onOpenFile={(path) => void openFileInDialog(path)}
+              />
               <ProjectPanel
                 language={language}
                 projects={projects}
+                sessions={codeConvos}
                 activeProjectId={activeProjectId}
+                activeSessionId={codeConvoId}
                 onSwitch={switchProject}
                 onCreate={() => void createProject()}
                 onRename={(id) => void renameProject(id)}
                 onDelete={deleteProject}
+                onNewSession={newSessionInProject}
+                onOpenSession={openConversation}
+                onDeleteSession={deleteConversation}
               />
               <AgentCenter
                 language={language}
@@ -2068,12 +2269,33 @@ function App() {
                 onAction={(tool, action) => void runCliAction(tool, action)}
                 compact
               />
+              </>
+              )}
             </aside>
 
             <div className="codeCenterCol">
+              <div className="centerColHeader">
+                <div className="viewSwitcher">
+                  <button
+                    className=""
+                    onClick={() => setActiveView("chat")}
+                  >
+                    <MessageSquare size={16} />
+                    <span>{text.tabChat}</span>
+                  </button>
+                  <button
+                    className="active"
+                    onClick={() => setActiveView("code")}
+                  >
+                    <Code size={16} />
+                    <span>{text.tabCode}</span>
+                  </button>
+                </div>
+              </div>
               <div className="codeChatSection codeChatFull">
                 <CodeChatPanel
                   language={language}
+                  status={cliStatus}
                   messages={messages}
                   value={chatInput}
                   selectedPlanner={selectedPlanner}
@@ -2134,19 +2356,27 @@ function App() {
                   onOpenFile={(path) => void openFileInDialog(path)}
                   onTogglePreview={() => setShowPreview((current) => !current)}
                   previewOpen={showPreview}
+                  previewAvailable={previewAvailable}
                 />
               </div>
             </div>
 
-            <aside className="codeRightCol fileExplorerCol">
-              <FileExplorer
-                language={language}
-                rootPath={activeRun?.workspacePath ?? projectWorkspace ?? null}
-                refreshKey={workspaceFileEventCount}
-                onOpenFile={(path) => void openFileInDialog(path)}
-              />
-              <RunStatusBar run={activeRun} events={events} language={language} />
-            </aside>
+            <IntegratedTerminal
+              language={language}
+              open={terminalOpen}
+              width={terminalWidth}
+              onWidthChange={setTerminalWidth}
+              onResizeStart={() => setTerminalResizing(true)}
+              onResizeEnd={() => setTerminalResizing(false)}
+              sessions={terminalSessions}
+              activeId={activeTerminalId}
+              outputs={terminalOutputs}
+              onToggle={() => setTerminalOpen((value) => !value)}
+              onCreate={(shell) => void createTerminal(shell)}
+              onClose={(id) => void closeTerminal(id)}
+              onSelect={setActiveTerminalId}
+              onInput={(id, value) => void sendTerminalInput(id, value)}
+            />
           </div>
         )}
         {showPreview && activeView === "code" && (
@@ -2161,21 +2391,6 @@ function App() {
           </div>
         )}
       </section>
-
-      {activeView === "code" && (
-        <IntegratedTerminal
-          language={language}
-          open={terminalOpen}
-          sessions={terminalSessions}
-          activeId={activeTerminalId}
-          outputs={terminalOutputs}
-          onToggle={() => setTerminalOpen((value) => !value)}
-          onCreate={(shell) => void createTerminal(shell)}
-          onClose={(id) => void closeTerminal(id)}
-          onSelect={setActiveTerminalId}
-          onInput={(id, value) => void sendTerminalInput(id, value)}
-        />
-      )}
 
       {fileDialogOpen && (
         <FileDialog
@@ -2345,7 +2560,47 @@ function App() {
       )}
 
       {notice && <div className="toast">{notice}</div>}
+      {textPrompt && (
+        <TextPromptModal
+          state={textPrompt}
+          cancelLabel={text.cancel}
+          onClose={() => setTextPrompt(null)}
+        />
+      )}
     </main>
+  );
+}
+
+// Composer textarea'sını içeriğe göre büyütür (en çok ~8 satır), value boşalınca geri küçülür.
+function useAutoGrow(value: string, maxPx = 184) {
+  const ref = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, maxPx)}px`;
+    el.style.overflowY = el.scrollHeight > maxPx ? "auto" : "hidden";
+  }, [value, maxPx]);
+  return ref;
+}
+
+// Mesaj kopyalama butonu (kullanıcı + ajan baloncukları). Kopyalayınca kısa süre tik gösterir.
+function CopyButton({ value, label, copiedLabel }: { value: string; label: string; copiedLabel: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch {
+      // pano erişimi yoksa sessizce geç
+    }
+  };
+  return (
+    <button className={`copyBtn${copied ? " copied" : ""}`} onClick={copy} title={copied ? copiedLabel : label}>
+      {copied ? <CheckCircle2 size={13} /> : <Copy size={13} />}
+    </button>
   );
 }
 
@@ -2366,18 +2621,35 @@ function AgentCenter({
 }) {
   const tools = status?.tools ?? [];
   const text = uiText[language];
+  // Kapalı bir kart: tıklayınca limitler açılır, dışarı tıklayınca otomatik kapanır.
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
   return (
-    <section className={`glassPanel${compact ? " agentCenterCompact" : ""}`}>
-      <div className="panelTitle split">
+    <section ref={rootRef} className={`glassPanel agentCenterPanel${compact ? " agentCenterCompact" : ""}${open ? " open" : ""}`}>
+      <div className="panelTitle split agentCenterToggle" onClick={() => setOpen((o) => !o)} role="button" title={text.agentCenter}>
         <span>
           <Zap size={17} />
           {text.agentCenter}
         </span>
-        <button className="iconButton" onClick={onRefresh} title={text.refresh}>
-          <RefreshCw size={15} />
-        </button>
+        <span className="agentCenterToggleRight">
+          {open && (
+            <button className="iconButton" onClick={(e) => { e.stopPropagation(); onRefresh(); }} title={text.refresh}>
+              <RefreshCw size={15} />
+            </button>
+          )}
+          {open ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+        </span>
       </div>
 
+      {open && (
       <div className="agentCards">
         {tools.map((tool) => (
           <article className="agentCard" key={tool.id}>
@@ -2424,6 +2696,7 @@ function AgentCenter({
         </article>
         )}
       </div>
+      )}
     </section>
   );
 }
@@ -2525,6 +2798,7 @@ function RunPanel({
 
 function ChatPanel({
   language,
+  status,
   messages,
   value,
   selectedPlanner,
@@ -2563,6 +2837,7 @@ function ChatPanel({
   onDismissPipeline
 }: {
   language: Language;
+  status: CliStatusResponse | null;
   messages: ChatMessage[];
   value: string;
   selectedPlanner: PlannerChoice;
@@ -2587,7 +2862,7 @@ function ChatPanel({
   suggestedPrompt: string | null;
   onModelChange: (model: string) => void;
   onChange: (value: string) => void;
-  attachments: { path: string; name: string; preview: string }[];
+  attachments: { path: string; name: string; preview: string; isImage: boolean }[];
   onAddImage: (file: File) => void;
   onRemoveImage: (path: string) => void;
   conversations: StoredConversation[];
@@ -2664,6 +2939,7 @@ function ChatPanel({
   }
 
   const recordClock = `${Math.floor(recordSeconds / 60)}:${String(recordSeconds % 60).padStart(2, "0")}`;
+  const composerRef = useAutoGrow(value);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -2671,34 +2947,10 @@ function ChatPanel({
 
   return (
     <section className="chatPanel glassPanel">
-      <div className="chatHeader">
-        <div className="panelTitle">
-          <MessageCircle size={18} />
-          <span>{text.plannerChat}</span>
-          <strong>{plannerLabels[selectedPlanner]}</strong>
-        </div>
-        <div className="chatTools">
-          <button className="ghostButton" onClick={onNewChat} title={text.newChat}>
-            <Plus size={15} />
-            {text.new}
-          </button>
-          <button
-            className="ghostButton"
-            onClick={() => setShowHistory(true)}
-            title={text.chatHistory}
-          >
-            <History size={15} />
-            {text.history}
-          </button>
-          <button className="ghostButton" onClick={onClear} title={text.clearChat}>
-            {text.clear}
-          </button>
-        </div>
-      </div>
 
       <div className="chatMessages">
         {messages.map((message) => (
-          <article key={message.id ?? `${message.role}-${message.createdAt}`} className={`chatBubble ${message.role}`}>
+          <article key={message.id ?? `${message.role}-${message.createdAt}`} className={`chatBubble ${message.role} compact`}>
             {message.role === "assistant" && (
               <div className="messageMeta">
                 <Bot size={14} />
@@ -2706,11 +2958,14 @@ function ChatPanel({
               </div>
             )}
             <pre>{message.content}</pre>
-            {message.createdAt && <time>{new Date(message.createdAt).toLocaleTimeString("tr-TR")}</time>}
+            <div className="bubbleFooter">
+              {message.createdAt && <time>{new Date(message.createdAt).toLocaleTimeString("tr-TR")}</time>}
+              <CopyButton value={message.content} label={text.copyMessage} copiedLabel={text.copied} />
+            </div>
           </article>
         ))}
         {thinking && (
-          <article className="chatBubble assistant thinking">
+          <article className="chatBubble assistant thinking compact">
             <div className="messageMeta">
               <Sparkles size={14} />
               <span>{plannerLabels[selectedPlanner]} {text.isThinking}</span>
@@ -2741,7 +2996,7 @@ function ChatPanel({
       </div>
 
       <div className="composerArea">
-        <div className="modeSwitch">
+        <div className="modeSwitch compact">
           {(["single", "multi", "debate"] as ChatMode[]).map((item) => {
             const disabled = item !== "single" && !multiAvailable;
             return (
@@ -2751,10 +3006,10 @@ function ChatPanel({
                 disabled={disabled}
                 onClick={() => onModeChange(item)}
               >
-                {item === "single" && <Bot size={15} />}
-                {item === "multi" && <Users size={15} />}
-                {item === "debate" && <Swords size={15} />}
-                {modeMeta[item].label} {text.mode}
+                {item === "single" && <Bot size={14} />}
+                {item === "multi" && <Users size={14} />}
+                {item === "debate" && <Swords size={14} />}
+                {modeMeta[item].label}
                 <span className="modeTip">{disabled ? text.needsTwoCli : modeMeta[item].desc}</span>
               </button>
             );
@@ -2762,22 +3017,13 @@ function ChatPanel({
         </div>
         {(mode === "debate" || mode === "multi") && (
           <div className="debateControls">
-            <ParticipantPicker
+            <ModelPicker
               language={language}
               sources={participantSources}
+              mode="multi"
               participants={participants}
-              onChange={onParticipantsChange}
+              onParticipantsChange={onParticipantsChange}
             />
-            {mode === "debate" && (
-              <label className="roundsPicker">
-                {text.rounds}
-                <select value={debateRounds} onChange={(event) => onRoundsChange(Number(event.target.value))}>
-                  <option value={1}>1</option>
-                  <option value={2}>2</option>
-                  <option value={3}>3</option>
-                </select>
-              </label>
-            )}
           </div>
         )}
 
@@ -2786,7 +3032,7 @@ function ChatPanel({
           <div className="attachmentRow">
             {attachments.map((item) => (
               <div className="attachmentChip" key={item.path}>
-                <img src={item.preview} alt={item.name} />
+                {item.isImage ? <img src={item.preview} alt={item.name} /> : <FileText size={14} className="attachmentFileIcon" />}
                 <span>{item.name}</span>
                 <button onClick={() => onRemoveImage(item.path)} title={text.remove}>
                   <X size={13} />
@@ -2798,7 +3044,6 @@ function ChatPanel({
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*"
           multiple
           hidden
           onChange={(event) => {
@@ -2825,6 +3070,7 @@ function ChatPanel({
         ) : (
           <>
             <textarea
+              ref={composerRef}
               className="composerInput"
               value={value}
               placeholder={text.composerPlaceholder}
@@ -2852,35 +3098,13 @@ function ChatPanel({
                   <Plus size={18} />
                 </button>
                 {mode === "single" && (
-                  <select
-                    className="pill"
-                    value={cliOptions.includes(singleCli) ? singleCli : ""}
-                    disabled={!cliOptions.length}
-                    title={text.whichCli}
-                    onChange={(event) => onSingleCliChange(event.target.value as DebateParticipant)}
-                  >
-                    {!cliOptions.length && <option value="">{text.noCli}</option>}
-                    {cliOptions.map((id) => (
-                      <option key={id} value={id}>
-                        {plannerLabels[id]}
-                      </option>
-                    ))}
-                  </select>
-                )}
-                {mode === "single" && (
-                <select
-                  className="pill"
-                  value={selectedModel}
-                  title="Model"
-                  onChange={(event) => onModelChange(event.target.value)}
-                >
-                  {modelOptions.map((model) => (
-                    <option key={model.id} value={model.id} disabled={model.limited}>
-                      {model.label}
-                      {model.limited ? ` - ${text.limited}${model.resetsAt ? ` (${resetLabel(model.resetsAt, language)})` : ""}` : ""}
-                    </option>
-                  ))}
-                </select>
+                  <ModelPicker
+                    language={language}
+                    sources={participantSources}
+                    mode="single"
+                    selected={{ cli: singleCli, model: selectedModel }}
+                    onSelect={(s) => { if (s) { onSingleCliChange(s.cli); onModelChange(s.model); } }}
+                  />
                 )}
                 {mode === "single" && (selectedPlanner === "claude" || selectedPlanner === "codex") && (
                   <select
@@ -2894,18 +3118,21 @@ function ChatPanel({
                     <option value="high">High</option>
                   </select>
                 )}
-                <select
-                  className="pill"
-                  value={selectedDetailLevel}
-                  title={text.detailLevelTitle}
-                  onChange={(event) => onDetailLevelChange(event.target.value as "low" | "medium" | "high")}
-                >
-                  <option value="low">{text.detailLow}</option>
-                  <option value="medium">{text.detailMedium}</option>
-                  <option value="high">{text.detailHigh}</option>
-                </select>
+                {mode === "single" && (
+                  <select
+                    className="pill"
+                    value={selectedDetailLevel}
+                    title={text.detailLevelTitle}
+                    onChange={(event) => onDetailLevelChange(event.target.value as "low" | "medium" | "high")}
+                  >
+                    <option value="low">{text.detailLow}</option>
+                    <option value="medium">{text.detailMedium}</option>
+                    <option value="high">{text.detailHigh}</option>
+                  </select>
+                )}
               </div>
               <div className="composerBarRight">
+                <LimitGauge status={status} language={language} />
                 {voiceSupported && (
                   <button className="iconRound" onClick={startVoice} title={text.voiceInput}>
                     <Mic size={18} />
@@ -3053,6 +3280,154 @@ function HistoryDialog({
 }
 
 // Paralel/Tartışma katılımcı editörü: aynı CLI'den farklı modeller ayrı katılımcı eklenebilir.
+// OpenRouter-fusion tarzı model seçici: aranabilir CLI×model dialog'u.
+// mode "multi" → katılımcı ekle (çoklu, chip'li); mode "single" → operatör (Birleştir, tekli).
+function ModelPicker({
+  language,
+  sources,
+  mode,
+  participants = [],
+  onParticipantsChange,
+  selected = null,
+  onSelect,
+  allowNone = false,
+  triggerPrefix,
+  noneLabel
+}: {
+  language: Language;
+  sources: { cli: DebateParticipant; label: string; models: ModelOption[] }[];
+  mode: "multi" | "single";
+  participants?: { cli: DebateParticipant; model: string }[];
+  onParticipantsChange?: (next: { cli: DebateParticipant; model: string }[]) => void;
+  selected?: { cli: DebateParticipant; model: string } | null;
+  onSelect?: (next: { cli: DebateParticipant; model: string } | null) => void;
+  allowNone?: boolean;
+  triggerPrefix?: string;
+  noneLabel?: string;
+}) {
+  const text = uiText[language];
+  const plannerLabels = plannerLabelsByLanguage[language];
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+
+  const q = query.trim().toLowerCase();
+  // "default" yazısı yerine: adı varsa modelin adı, yoksa "Otomatik".
+  const labelForModel = (m: ModelOption) => (m.id === "default" ? text.auto : m.label);
+  const modelLabelOf = (cli: DebateParticipant, model: string) => {
+    const m = sources.find((s) => s.cli === cli)?.models.find((mm) => mm.id === model);
+    return m ? labelForModel(m) : model;
+  };
+  // İsimli modeller varsa "default"u gizle; yoksa tek "default"u "Otomatik" olarak göster.
+  const shownModels = (s: { models: ModelOption[] }) => {
+    const named = s.models.filter((m) => m.id !== "default");
+    return named.length ? named : s.models;
+  };
+  const isSelected = (cli: DebateParticipant, model: string) =>
+    mode === "multi"
+      ? participants.some((p) => p.cli === cli && p.model === model)
+      : !!selected && selected.cli === cli && selected.model === model;
+
+  const choose = (cli: DebateParticipant, model: string) => {
+    if (mode === "multi") {
+      const exists = participants.some((p) => p.cli === cli && p.model === model);
+      onParticipantsChange?.(
+        exists ? participants.filter((p) => !(p.cli === cli && p.model === model)) : [...participants, { cli, model }]
+      );
+    } else {
+      onSelect?.({ cli, model });
+      setOpen(false);
+    }
+  };
+
+  const singleValueLabel = selected
+    ? `${plannerLabels[selected.cli]}${selected.model && selected.model !== "default" ? ` · ${modelLabelOf(selected.cli, selected.model)}` : ""}`
+    : (noneLabel ?? "");
+
+  return (
+    <div className="modelPicker" ref={ref}>
+      <div className="modelPickerTrigger">
+        {mode === "multi" &&
+          participants.map((p, i) => (
+            <span className="partChip on" key={`${p.cli}-${p.model}-${i}`}>
+              {plannerLabels[p.cli]}{p.model !== "default" ? ` · ${modelLabelOf(p.cli, p.model)}` : ""}
+              <button
+                className="partChipRemove"
+                onClick={() => onParticipantsChange?.(participants.filter((_, idx) => idx !== i))}
+                title={text.remove}
+              >
+                <X size={11} />
+              </button>
+            </span>
+          ))}
+        {mode === "multi" ? (
+          <button className="addModelBtn" onClick={() => setOpen((o) => !o)}>
+            <Plus size={14} /> {text.addModel}
+          </button>
+        ) : (
+          <button className="fuseWithBtn" onClick={() => setOpen((o) => !o)}>
+            {triggerPrefix && <span className="fuseLabel">{triggerPrefix}</span>}
+            <span className="fuseModel">{singleValueLabel}</span>
+          </button>
+        )}
+      </div>
+      {open && (
+        <div className="modelPickerDialog" onMouseDown={(e) => e.stopPropagation()}>
+          <div className="modelPickerSearch">
+            <Search size={14} />
+            <input autoFocus value={query} placeholder={text.searchModels} onChange={(e) => setQuery(e.target.value)} />
+          </div>
+          <div className="modelPickerList">
+            {mode === "single" && allowNone && (
+              <button className={`modelPickerRow${!selected ? " selected" : ""}`} onClick={() => { onSelect?.(null); setOpen(false); }}>
+                <span className="modelPickerRowName">{noneLabel}</span>
+                {!selected && <CheckCircle2 size={14} />}
+              </button>
+            )}
+            {sources.map((s) => {
+              const rows = shownModels(s).filter((m) => !q || s.label.toLowerCase().includes(q) || labelForModel(m).toLowerCase().includes(q));
+              if (!rows.length) return null;
+              return (
+                <div className="modelPickerGroupWrap" key={s.cli}>
+                  <div className="modelPickerGroup">
+                    <span className={`agentIcon ${s.cli}`}>{iconForTool(s.cli)}</span>
+                    {s.label}
+                  </div>
+                  {rows.map((m) => {
+                    const sel = isSelected(s.cli, m.id);
+                    return (
+                      <button
+                        key={m.id}
+                        className={`modelPickerRow${sel ? " selected" : ""}`}
+                        disabled={m.limited}
+                        onClick={() => choose(s.cli, m.id)}
+                      >
+                        <span className="modelPickerRowName">{labelForModel(m)}{m.limited ? ` · ${text.limited}` : ""}</span>
+                        {sel && <CheckCircle2 size={14} />}
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })}
+            {sources.every((s) => !shownModels(s).some((m) => !q || s.label.toLowerCase().includes(q) || labelForModel(m).toLowerCase().includes(q))) && (
+              <div className="modelPickerEmpty">{text.noResults}</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ParticipantPicker({
   language,
   sources,
@@ -3127,25 +3502,108 @@ function ParticipantPicker({
   );
 }
 
+// Temalı metin giriş modalı — window.prompt yerine (proje oluştur / yeniden adlandır).
+function TextPromptModal({ state, cancelLabel, onClose }: { state: TextPromptState; cancelLabel: string; onClose: () => void }) {
+  const [value, setValue] = useState(state.initial);
+  // state değişince (yeni bir prompt açılınca) input değerini sıfırla.
+  useEffect(() => {
+    setValue(state.initial);
+  }, [state]);
+  const submit = () => {
+    state.resolve(value.trim() ? value.trim() : null);
+    onClose();
+  };
+  const cancel = () => {
+    state.resolve(null);
+    onClose();
+  };
+  return (
+    <div className="promptOverlay" onMouseDown={cancel}>
+      <div className="promptDialog glassPanel" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="promptTitle">{state.title}</div>
+        <input
+          className="promptInput"
+          autoFocus
+          value={value}
+          placeholder={state.placeholder}
+          onChange={(event) => setValue(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              submit();
+            } else if (event.key === "Escape") {
+              event.preventDefault();
+              cancel();
+            }
+          }}
+        />
+        <div className="promptActions">
+          <button className="ghostButton" onClick={cancel}>
+            {cancelLabel}
+          </button>
+          <button className="primaryButton" onClick={submit} disabled={!value.trim()}>
+            {state.confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Sol sütun: proje yönetimi (Ajan Merkezi'nin üstünde). Oluştur / geç / yeniden adlandır / sil.
 function ProjectPanel({
   language,
   projects,
+  sessions,
   activeProjectId,
+  activeSessionId,
   onSwitch,
   onCreate,
   onRename,
-  onDelete
+  onDelete,
+  onNewSession,
+  onOpenSession,
+  onDeleteSession
 }: {
   language: Language;
   projects: Project[];
+  sessions: StoredConversation[];
   activeProjectId: string | null;
+  activeSessionId: string;
   onSwitch: (id: string) => void;
   onCreate: () => void;
   onRename: (id: string) => void;
   onDelete: (id: string) => void;
+  onNewSession: (projectId: string) => void;
+  onOpenSession: (id: string) => void;
+  onDeleteSession: (id: string) => void;
 }) {
   const text = uiText[language];
+  const [query, setQuery] = useState("");
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(activeProjectId ? [activeProjectId] : []));
+  // ChatGPT tarzı ⋯ menüsü: hangi projenin menüsü açık.
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  // Dışarı tıklayınca menüyü kapat.
+  useEffect(() => {
+    if (!menuFor) return;
+    const close = () => setMenuFor(null);
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [menuFor]);
+  const q = query.trim().toLowerCase();
+  const sessionsOf = (pid: string) => sessions.filter((s) => s.projectId === pid);
+  // Arama: proje adı VEYA içindeki oturum başlığı eşleşirse göster.
+  const visible = projects.filter((p) => {
+    if (!q) return true;
+    if (p.name.toLowerCase().includes(q)) return true;
+    return sessionsOf(p.id).some((s) => (s.title || "").toLowerCase().includes(q));
+  });
+  const toggle = (id: string) => setExpanded((cur) => {
+    const next = new Set(cur);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+
   return (
     <section className="glassPanel projectPanel">
       <div className="panelTitle split">
@@ -3157,22 +3615,119 @@ function ProjectPanel({
           <Plus size={14} />
         </button>
       </div>
+      <div className="panelSearch">
+        <Search size={13} />
+        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={text.searchPlaceholder} />
+      </div>
       <div className="projectList">
-        {projects.length === 0 && <p className="projectEmpty">{text.noProjectsDesc}</p>}
-        {projects.map((p) => (
-          <div className={`projectRow${p.id === activeProjectId ? " active" : ""}`} key={p.id}>
-            <button className="projectNameBtn" onClick={() => onSwitch(p.id)} title={p.workspacePath}>
-              <span className="projectDot" />
-              <span className="projectNameText">{p.name}</span>
+        {visible.length === 0 && <p className="projectEmpty">{q ? text.noResults : text.noProjectsDesc}</p>}
+        {visible.map((p) => {
+          const open = expanded.has(p.id) || !!q;
+          const sess = sessionsOf(p.id).filter((s) => !q || (s.title || "").toLowerCase().includes(q) || p.name.toLowerCase().includes(q));
+          return (
+            <div className="projectGroup" key={p.id}>
+              <div className={`projectRow${p.id === activeProjectId ? " active" : ""}`}>
+                <button className="projectChevron" onClick={() => toggle(p.id)} title={open ? text.collapse : text.expand}>
+                  {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                </button>
+                <button className="projectNameBtn" onClick={() => { onSwitch(p.id); if (!expanded.has(p.id)) toggle(p.id); }} title={p.workspacePath}>
+                  <span className="projectDot" />
+                  <span className="projectNameText">{p.name}</span>
+                </button>
+                <button className="iconButton rowAction" onClick={() => onNewSession(p.id)} title={text.newSessionTitle}><Plus size={13} /></button>
+                <div className="rowMenuWrap">
+                  <button
+                    className="iconButton rowAction"
+                    onClick={(e) => { e.stopPropagation(); setMenuFor((cur) => (cur === p.id ? null : p.id)); }}
+                    title={text.moreActions}
+                  >
+                    <MoreHorizontal size={15} />
+                  </button>
+                  {menuFor === p.id && (
+                    <div className="rowMenu" onMouseDown={(e) => e.stopPropagation()}>
+                      <button onClick={() => { setMenuFor(null); onRename(p.id); }}>
+                        <Pencil size={13} /> {text.renameProject}
+                      </button>
+                      <button className="danger" onClick={() => { setMenuFor(null); if (confirm(text.deleteProjectConfirm)) onDelete(p.id); }}>
+                        <Trash2 size={13} /> {text.deleteProject}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+              {open && (
+                <div className="sessionList">
+                  {sess.length === 0 && <p className="sessionEmpty">{text.noSessionsYet}</p>}
+                  {sess.map((s) => (
+                    <div className={`sessionRow${s.id === activeSessionId ? " active" : ""}`} key={s.id}>
+                      <button className="sessionNameBtn" onClick={() => onOpenSession(s.id)} title={s.title}>
+                        <MessageCircle size={11} />
+                        <span className="sessionNameText">{s.title || text.untitled}</span>
+                      </button>
+                      <button className="sessionDelete" onClick={() => onDeleteSession(s.id)} title={text.delete}><X size={11} /></button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+// Chat modu sol panel: düz "Geçmiş Sohbetler" listesi (ilk 10 + daha fazla göster) + arama.
+function ChatHistoryPanel({
+  language,
+  sessions,
+  activeSessionId,
+  onNew,
+  onOpen,
+  onDelete
+}: {
+  language: Language;
+  sessions: StoredConversation[];
+  activeSessionId: string;
+  onNew: () => void;
+  onOpen: (id: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const text = uiText[language];
+  const [query, setQuery] = useState("");
+  const [showAll, setShowAll] = useState(false);
+  const q = query.trim().toLowerCase();
+  const filtered = q ? sessions.filter((s) => (s.title || "").toLowerCase().includes(q)) : sessions;
+  const shown = showAll || q ? filtered : filtered.slice(0, 10);
+  return (
+    <section className="glassPanel projectPanel">
+      <div className="panelTitle split">
+        <span>
+          <History size={16} />
+          {text.chatHistoryTitle}
+        </span>
+        <button className="iconButton" onClick={onNew} title={text.newChat}>
+          <Plus size={14} />
+        </button>
+      </div>
+      <div className="panelSearch">
+        <Search size={13} />
+        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={text.searchPlaceholder} />
+      </div>
+      <div className="sessionList flat">
+        {shown.length === 0 && <p className="sessionEmpty">{q ? text.noResults : text.noSessionsYet}</p>}
+        {shown.map((s) => (
+          <div className={`sessionRow${s.id === activeSessionId ? " active" : ""}`} key={s.id}>
+            <button className="sessionNameBtn" onClick={() => onOpen(s.id)} title={s.title}>
+              <MessageCircle size={11} />
+              <span className="sessionNameText">{s.title || text.untitled}</span>
             </button>
-            <button className="iconButton" onClick={() => onRename(p.id)} title={text.renameProject}>
-              <Pencil size={12} />
-            </button>
-            <button className="iconButton" onClick={() => { if (confirm(text.deleteProjectConfirm)) onDelete(p.id); }} title={text.deleteProject}>
-              <Trash2 size={12} />
-            </button>
+            <button className="sessionDelete" onClick={() => onDelete(s.id)} title={text.delete}><X size={11} /></button>
           </div>
         ))}
+        {!q && !showAll && filtered.length > 10 && (
+          <button className="showMoreBtn" onClick={() => setShowAll(true)}>{text.showMore} ({filtered.length - 10})</button>
+        )}
       </div>
     </section>
   );
@@ -3576,6 +4131,75 @@ function UsageBars({ usage, language }: { usage?: CliToolStatus["usage"]; langua
         </div>
       ))}
       {usage.stale && <small className="usageStale">{text.staleUsage}</small>}
+    </div>
+  );
+}
+
+// Chat alanındaki interaktif limit göstergesi: CLI'lerin kalan limitinin ortalamasını
+// donut olarak gösterir; tıklayınca küçük bir popup'ta her CLI'nin limitleri çıkar.
+function LimitGauge({ status, language }: { status: CliStatusResponse | null; language: Language }) {
+  const text = uiText[language];
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+
+  const tools = (status?.tools ?? []).filter((t) => t.usage?.windows?.length);
+  // Her CLI için en kısıtlayıcı pencereden kalan; sonra ortalama.
+  const remainings = tools.map((t) => 100 - Math.max(...t.usage!.windows.map((w) => w.usedPercent)));
+  const avg = remainings.length ? Math.round(remainings.reduce((a, b) => a + b, 0) / remainings.length) : 0;
+  const radius = 9;
+  const circ = 2 * Math.PI * radius;
+  const offset = circ * (1 - avg / 100);
+  const color = avg <= 15 ? "#ef4444" : avg <= 40 ? "#f59e0b" : "#22c55e";
+
+  return (
+    <div className="limitGauge" ref={ref}>
+      <button className="limitGaugeBtn" onClick={() => setOpen((o) => !o)} title={`${text.agentCenter}: %${avg}`}>
+        <svg width="26" height="26" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r={radius} fill="none" stroke="rgba(148,163,184,0.22)" strokeWidth="3" />
+          <circle
+            cx="12" cy="12" r={radius} fill="none" stroke={color} strokeWidth="3" strokeLinecap="round"
+            strokeDasharray={circ} strokeDashoffset={offset} transform="rotate(-90 12 12)"
+          />
+        </svg>
+        <span className="limitGaugePct" style={{ color }}>{avg}</span>
+      </button>
+      {open && (
+        <div className="limitPopup" onMouseDown={(e) => e.stopPropagation()}>
+          <div className="limitPopupHead">
+            <Zap size={13} />
+            <span>{text.agentCenter}</span>
+            <strong style={{ color }}>%{avg}</strong>
+          </div>
+          {tools.length === 0 && <p className="limitPopupEmpty">{text.readingCli}</p>}
+          {tools.map((t) => (
+            <div className="limitPopupRow" key={t.id}>
+              <div className="limitPopupName">
+                <span className={`agentIcon ${t.id}`}>{iconForTool(t.id)}</span>
+                <strong>{displayToolName(t.id)}</strong>
+              </div>
+              {t.usage!.windows.map((w) => (
+                <div className="limitMini" key={w.label}>
+                  <div className="limitMiniHead"><span>{w.label}</span><span>%{w.usedPercent}</span></div>
+                  <div className="limitMiniTrack">
+                    <div
+                      className={`limitMiniFill${w.usedPercent >= 90 ? " danger" : w.usedPercent >= 60 ? " warn" : ""}`}
+                      style={{ width: `${w.usedPercent}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -4341,6 +4965,10 @@ function FileDialog({
 function IntegratedTerminal({
   language,
   open,
+  width,
+  onWidthChange,
+  onResizeStart,
+  onResizeEnd,
   sessions,
   activeId,
   outputs,
@@ -4352,6 +4980,10 @@ function IntegratedTerminal({
 }: {
   language: Language;
   open: boolean;
+  width: number;
+  onWidthChange: (w: number) => void;
+  onResizeStart: () => void;
+  onResizeEnd: () => void;
   sessions: TerminalSessionInfo[];
   activeId: string | null;
   outputs: Record<string, string>;
@@ -4363,12 +4995,68 @@ function IntegratedTerminal({
 }) {
   const text = uiText[language];
   const [command, setCommand] = useState("");
-  const outputRef = useRef<HTMLPreElement | null>(null);
+  const [shellMenu, setShellMenu] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const outputRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const active = sessions.find((session) => session.id === activeId) ?? sessions[0];
+
+  // Komut satırı prefixi: çıktıdaki SON gerçek shell prompt'undan dizini canlı oku (cd ile güncellensin).
+  const liveCwd = useMemo(() => {
+    const out = active ? outputs[active.id] : "";
+    if (!out) return active?.cwd ?? "";
+    const matches = [...out.matchAll(/(?:PS\s+)?([A-Za-z]:\\[^\r\n>]*)>/g)];
+    return matches.length ? matches[matches.length - 1][1].trim() : (active?.cwd ?? "");
+  }, [active?.id, active?.cwd, outputs]);
+
+  // + menüsü dışarı tıklayınca kapansın.
+  useEffect(() => {
+    if (!shellMenu) return;
+    const close = () => setShellMenu(false);
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [shellMenu]);
+
+  const copyOutput = async () => {
+    if (!active) return;
+    try {
+      await navigator.clipboard.writeText(outputs[active.id] || "");
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch {
+      // pano erişimi yoksa sessizce geç
+    }
+  };
 
   useEffect(() => {
     outputRef.current?.scrollTo({ top: outputRef.current.scrollHeight });
   }, [outputs, active?.id]);
+
+  // Terminal açılınca / sekme değişince input'a odaklan (gerçek terminal hissi).
+  useEffect(() => {
+    if (open && active) inputRef.current?.focus();
+  }, [open, active?.id]);
+
+  // Sol kenardan yatay sürükleyerek genişlik ayarı.
+  const startResize = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = width;
+    onResizeStart();
+    const move = (ev: PointerEvent) => {
+      const delta = startX - ev.clientX; // sola sürükleyince genişler
+      onWidthChange(Math.min(820, Math.max(300, startW + delta)));
+    };
+    const up = () => {
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", up);
+      document.body.style.userSelect = "";
+      onResizeEnd();
+    };
+    document.body.style.userSelect = "none";
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", up);
+  };
 
   if (!open) {
     return (
@@ -4382,6 +5070,7 @@ function IntegratedTerminal({
 
   return (
     <section className="integratedTerminal">
+      <div className="terminalResizer" onPointerDown={startResize} title={text.resizeTerminal} />
       <div className="terminalTopbar">
         <div className="terminalTabs">
           {sessions.map((session) => (
@@ -4403,16 +5092,36 @@ function IntegratedTerminal({
           ))}
         </div>
         <div className="terminalActions">
-          <button onClick={() => onCreate("powershell")}>{text.newPowerShell}</button>
-          <button onClick={() => onCreate("cmd")}>{text.newCmd}</button>
+          <button className={`copyBtn terminalCopyBtn${copied ? " copied" : ""}`} onClick={copyOutput} title={copied ? text.copied : text.copyMessage}>
+            {copied ? <CheckCircle2 size={14} /> : <Copy size={14} />}
+          </button>
+          <div className="terminalNewWrap">
+            <button
+              className="iconButton terminalNewBtn"
+              onClick={(e) => { e.stopPropagation(); setShellMenu((v) => !v); }}
+              title={text.newTerminalTitle}
+            >
+              <Plus size={15} />
+            </button>
+            {shellMenu && (
+              <div className="rowMenu terminalShellMenu" onMouseDown={(e) => e.stopPropagation()}>
+                <button onClick={() => { setShellMenu(false); onCreate("powershell"); }}>
+                  <SquareTerminal size={13} /> {text.newPowerShell}
+                </button>
+                <button onClick={() => { setShellMenu(false); onCreate("cmd"); }}>
+                  <SquareTerminal size={13} /> {text.newCmd}
+                </button>
+              </div>
+            )}
+          </div>
           <button className="iconButton" onClick={onToggle} title={text.closeTerminal}>
             <X size={14} />
           </button>
         </div>
       </div>
       {active ? (
-        <>
-          <pre ref={outputRef} className="integratedTerminalOutput">{outputs[active.id] || ""}</pre>
+        <div className="terminalScreen" ref={outputRef} onClick={() => inputRef.current?.focus()}>
+          <pre className="integratedTerminalOutput">{outputs[active.id] || ""}</pre>
           <form
             className="terminalInputRow"
             onSubmit={(event) => {
@@ -4423,14 +5132,16 @@ function IntegratedTerminal({
               setCommand("");
             }}
           >
-            <span>{active.shell === "cmd" ? "cmd>" : "PS>"}</span>
+            <span className="terminalPrompt">{active.shell === "cmd" ? `${liveCwd}>` : `PS ${liveCwd}>`}</span>
             <input
+              ref={inputRef}
+              autoFocus
               value={command}
               placeholder={text.terminalPlaceholder}
               onChange={(event) => setCommand(event.target.value)}
             />
           </form>
-        </>
+        </div>
       ) : (
         <div className="terminalEmpty">
           <SquareTerminal size={28} />
@@ -4442,7 +5153,7 @@ function IntegratedTerminal({
 }
 
 function CodeChatPanel({
-  language, messages, value, selectedPlanner, selectedModel, modelOptions,
+  language, status, messages, value, selectedPlanner, selectedModel, modelOptions,
   selectedEffort, onEffortChange, selectedDetailLevel, onDetailLevelChange,
   mode, onModeChange, multiAvailable, cliOptions, singleCli, onSingleCliChange,
   thinking, onModelChange, onChange, onSend, onClear, onCreateBrief, onCreatePlan, onStart,
@@ -4454,9 +5165,10 @@ function CodeChatPanel({
   attachments, onAddImage, onRemoveImage,
   conversations, activeConversationId, onOpenConversation, onDeleteConversation, onNewChat,
   projects, activeProjectId, onSwitchProject, onNewProject, onDeleteProject,
-  run, events, onOpenFile, onTogglePreview, previewOpen
+  run, events, onOpenFile, onTogglePreview, previewOpen, previewAvailable
 }: {
   language: Language;
+  status: CliStatusResponse | null;
   messages: ChatMessage[];
   value: string;
   selectedPlanner: PlannerChoice;
@@ -4499,7 +5211,7 @@ function CodeChatPanel({
   runActive: boolean;
   onAddNote: (note: string) => void;
   onStopRun: () => void;
-  attachments: { path: string; name: string; preview: string }[];
+  attachments: { path: string; name: string; preview: string; isImage: boolean }[];
   onAddImage: (file: File) => void;
   onRemoveImage: (path: string) => void;
   conversations: StoredConversation[];
@@ -4517,41 +5229,76 @@ function CodeChatPanel({
   onOpenFile?: (path: string) => void;
   onTogglePreview: () => void;
   previewOpen: boolean;
+  previewAvailable: boolean;
 }) {
   const text = uiText[language];
   const plannerLabels = plannerLabelsByLanguage[language];
   const modeMeta = modeMetaByLanguage[language];
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const composerRef = useAutoGrow(value);
   const recognitionRef = useRef<any>(null);
   const [listening, setListening] = useState(false);
+  // Sohbet sekmesindeki ile birebir aynı sesli komut (dalga animasyonu + canlı yazı).
+  const [liveTranscript, setLiveTranscript] = useState("");
+  const [recordSeconds, setRecordSeconds] = useState(0);
+  const transcriptRef = useRef("");
+  const sendAfterRef = useRef(false);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [briefOpen, setBriefOpen] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [now, setNow] = useState(Date.now());
   const voiceSupported = typeof window !== "undefined" && Boolean((window as any).webkitSpeechRecognition || (window as any).SpeechRecognition);
 
-  function toggleVoice() {
-    if (listening) {
-      recognitionRef.current?.stop();
-      return;
-    }
+  function startVoice() {
     const Recognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
-    if (!Recognition) return;
+    if (!Recognition || listening) return;
     const recognition = new Recognition();
     recognition.lang = language === "tr" ? "tr-TR" : "en-US";
-    recognition.interimResults = false;
-    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.continuous = true;
+    transcriptRef.current = "";
+    sendAfterRef.current = false;
+    setLiveTranscript("");
+    setRecordSeconds(0);
     recognition.onresult = (event: any) => {
-      const transcript = Array.from(event.results).map((r: any) => r[0]?.transcript ?? "").join(" ").trim();
-      if (transcript) onChange(value.trim() ? `${value.trim()} ${transcript}` : transcript);
+      const transcript = Array.from(event.results)
+        .map((result: any) => result[0]?.transcript ?? "")
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim();
+      transcriptRef.current = transcript;
+      setLiveTranscript(transcript);
     };
-    recognition.onend = () => setListening(false);
-    recognition.onerror = () => setListening(false);
+    recognition.onend = () => {
+      setListening(false);
+      if (timerRef.current) clearInterval(timerRef.current);
+      const t = transcriptRef.current.trim();
+      if (sendAfterRef.current) {
+        const combined = value.trim() ? `${value.trim()} ${t}`.trim() : t;
+        if (combined) onSend(combined);
+      } else if (t) {
+        onChange(value.trim() ? `${value.trim()} ${t}` : t);
+      }
+      setLiveTranscript("");
+    };
+    recognition.onerror = () => {
+      setListening(false);
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
     recognitionRef.current = recognition;
     setListening(true);
     recognition.start();
+    timerRef.current = setInterval(() => setRecordSeconds((s) => s + 1), 1000);
   }
+
+  function stopVoice(send: boolean) {
+    sendAfterRef.current = send;
+    if (!send) transcriptRef.current = "";
+    recognitionRef.current?.stop();
+  }
+
+  const recordClock = `${Math.floor(recordSeconds / 60)}:${String(recordSeconds % 60).padStart(2, "0")}`;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -4570,37 +5317,14 @@ function CodeChatPanel({
 
   return (
     <section className="codeChatPanel glassPanel">
-      <div className="codeChatHeader">
-        <div className="panelTitle projectTitle">
-          <Folder size={15} />
-          <span className="activeProjectLabel" title={text.activeProject}>
-            {projects.find((p) => p.id === activeProjectId)?.name ?? text.noProjectYet}
-          </span>
-        </div>
-        <div className="codeChatTools">
-          <button className="ghostButton" onClick={onNewChat} title={text.newSessionTitle}>
-            <Plus size={13} />
-            {text.new}
-          </button>
-          <button className="ghostButton" onClick={() => setShowHistory(true)} title={text.history}>
-            <History size={13} />
-            {text.history}
-          </button>
+      {previewAvailable && (
+        <div className="codeChatFloatTools">
           <button className="ghostButton" onClick={onTogglePreview} title={text.togglePreview}>
             {previewOpen ? <PanelRightClose size={13} /> : <PanelRightOpen size={13} />}
             {text.preview}
           </button>
-          <button className="ghostButton" onClick={onClear} title={text.clearChat}>{text.clear}</button>
-          <button className="ghostButton" onClick={onCreateBrief} title={text.createBrief}>
-            <FileText size={13} />
-            Brief
-          </button>
-          <button className="ghostButton" onClick={onCreatePlan} title={text.teamPlanTitle}>
-            <Users size={13} />
-            {text.teamPlan}
-          </button>
         </div>
-      </div>
+      )}
 
       {run && (
         <div className={`runBanner status-${run.status}`}>
@@ -4648,6 +5372,9 @@ function CodeChatPanel({
                 </div>
               )}
               <pre>{msg.content}</pre>
+              <div className="bubbleFooter">
+                <CopyButton value={msg.content} label={text.copyMessage} copiedLabel={text.copied} />
+              </div>
             </article>
           )
         )}
@@ -4703,113 +5430,51 @@ function CodeChatPanel({
             </button>
           </div>
         )}
-        <div className="codeChatComposerRow">
-          <div className="modeSwitch compact">
-            {(["single", "multi", "debate"] as ChatMode[]).map((item) => {
-              const disabled = item !== "single" && !multiAvailable;
-              return (
-                <button
-                  key={item}
-                  className={`modeTab${mode === item ? " on" : ""}${item === "debate" ? " debate" : ""}`}
-                  disabled={disabled}
-                  onClick={() => onModeChange(item)}
-                  title={modeMeta[item].desc}
-                >
-                  {item === "single" && <Bot size={13} />}
-                  {item === "multi" && <Users size={13} />}
-                  {item === "debate" && <Swords size={13} />}
-                  {modeMeta[item].label}
-                </button>
-              );
-            })}
-          </div>
-          {mode === "single" && (
-            <select
-              className="pill"
-              value={cliOptions.includes(singleCli) ? singleCli : ""}
-              disabled={!cliOptions.length}
-              onChange={(e) => onSingleCliChange(e.target.value as DebateParticipant)}
-            >
-              {!cliOptions.length && <option value="">{text.noCli}</option>}
-              {cliOptions.map((id) => <option key={id} value={id}>{plannerLabels[id]}</option>)}
-            </select>
-          )}
-          {mode === "single" && (
-            <select className="pill" value={selectedModel} onChange={(e) => onModelChange(e.target.value)}>
-              {modelOptions.map((m) => (
-                <option key={m.id} value={m.id} disabled={m.limited}>{m.label}{m.limited ? ` - ${text.limited}` : ""}</option>
-              ))}
-            </select>
-          )}
-          {mode === "debate" && (
-            <select
-              className="pill"
-              value={operatorSel ? `${operatorSel.cli}|${operatorSel.model}` : ""}
-              title={text.operatorTitle}
-              onChange={(e) => {
-                if (!e.target.value) return onOperatorChange(null);
-                const [cli, model] = e.target.value.split("|");
-                onOperatorChange({ cli: cli as DebateParticipant, model });
-              }}
-            >
-              <option value="">{text.operatorNone}</option>
-              {participantSources.flatMap((s) =>
-                s.models.map((m) => (
-                  <option key={`${s.cli}|${m.id}`} value={`${s.cli}|${m.id}`}>
-                    🎯 {s.label}{m.id !== "default" ? ` · ${m.label}` : ""}
-                  </option>
-                ))
-              )}
-            </select>
-          )}
-          <select
-            className="pill"
-            value={selectedDetailLevel}
-            title={text.detailLevelTitle}
-            onChange={(e) => onDetailLevelChange(e.target.value as "low" | "medium" | "high")}
-          >
-            <option value="low">{text.detailLow}</option>
-            <option value="medium">{text.detailMedium}</option>
-            <option value="high">{text.detailHigh}</option>
-          </select>
+        <div className="modeSwitch compact codeModeSwitch">
+          {(["single", "multi", "debate"] as ChatMode[]).map((item) => {
+            const disabled = item !== "single" && !multiAvailable;
+            return (
+              <button
+                key={item}
+                className={`modeTab${mode === item ? " on" : ""}${item === "debate" ? " debate" : ""}`}
+                disabled={disabled}
+                onClick={() => onModeChange(item)}
+                title={modeMeta[item].desc}
+              >
+                {item === "single" && <Bot size={13} />}
+                {item === "multi" && <Users size={13} />}
+                {item === "debate" && <Swords size={13} />}
+                {modeMeta[item].label}
+              </button>
+            );
+          })}
         </div>
         {(mode === "debate" || mode === "multi") && (
           <div className="debateControls compact">
-            <ParticipantPicker
+            <ModelPicker
               language={language}
               sources={participantSources}
+              mode="multi"
               participants={participants}
-              onChange={onParticipantsChange}
+              onParticipantsChange={onParticipantsChange}
             />
             {mode === "debate" && (
-              <label className="roundsPicker">
-                {text.rounds}
-                <select value={debateRounds} onChange={(e) => onRoundsChange(Number(e.target.value))}>
-                  <option value={1}>1</option>
-                  <option value={2}>2</option>
-                  <option value={3}>3</option>
-                </select>
-              </label>
+              <ModelPicker
+                language={language}
+                sources={participantSources}
+                mode="single"
+                selected={operatorSel}
+                onSelect={onOperatorChange}
+                allowNone
+                triggerPrefix={text.operatorSelect}
+                noneLabel={text.operatorNone}
+              />
             )}
-          </div>
-        )}
-        {attachments.length > 0 && (
-          <div className="attachmentRow">
-            {attachments.map((item) => (
-              <div className="attachmentChip" key={item.path}>
-                <img src={item.preview} alt={item.name} />
-                <span>{item.name}</span>
-                <button onClick={() => onRemoveImage(item.path)} title={text.removeAttachment}>
-                  <X size={12} />
-                </button>
-              </div>
-            ))}
           </div>
         )}
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*"
           multiple
           hidden
           onChange={(e) => {
@@ -4817,68 +5482,129 @@ function CodeChatPanel({
             e.target.value = "";
           }}
         />
-        <div className="codeChatInputRow">
-          <button className="iconRound" onClick={() => fileInputRef.current?.click()} title={text.addImage}>
-            <Plus size={16} />
-          </button>
-          <textarea
-            ref={composerRef}
-            className="codeChatInput"
-            value={value}
-            placeholder={runActive ? text.steeringPlaceholder : text.composerPlaceholder}
-            onChange={(e) => onChange(e.target.value)}
-            onPaste={(e) => {
-              const images = Array.from(e.clipboardData.items)
-                .filter((it) => it.type.startsWith("image/"))
-                .map((it) => it.getAsFile())
-                .filter((f): f is File => Boolean(f));
-              if (images.length) {
-                e.preventDefault();
-                images.forEach((file) => onAddImage(file));
-              }
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                if (runActive) {
-                  if (value.trim()) { onAddNote(value); onChange(""); }
-                } else onSend();
-              }
-            }}
-            rows={1}
-          />
-          {voiceSupported && (
-            <button className={`iconRound${listening ? " recording" : ""}`} onClick={toggleVoice} title={text.voiceInput}>
-              <Mic size={16} />
-            </button>
+        <div className={`composerBox codeComposerBox${listening ? " recording" : ""}`}>
+          {attachments.length > 0 && (
+            <div className="attachmentRow">
+              {attachments.map((item) => (
+                <div className="attachmentChip" key={item.path}>
+                  {item.isImage ? <img src={item.preview} alt={item.name} /> : <FileText size={13} className="attachmentFileIcon" />}
+                  <span>{item.name}</span>
+                  <button onClick={() => onRemoveImage(item.path)} title={text.removeAttachment}>
+                    <X size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
           )}
-          {runActive ? (
-            value.trim() ? (
-              <button
-                className="iconRound sendCircle"
-                onClick={() => { onAddNote(value); onChange(""); }}
-                title={text.addNote}
-              >
-                <ArrowUp size={16} />
+          {listening ? (
+            <div className="voiceBar">
+              <span className="voiceClock">{recordClock}</span>
+              <div className="voiceWave">
+                {Array.from({ length: 28 }).map((_, index) => (
+                  <span key={index} style={{ animationDelay: `${(index % 7) * 0.09}s` }} />
+                ))}
+              </div>
+              <span className="voiceText">{liveTranscript || text.listening}</span>
+              <button className="iconRound voiceCancel" onClick={() => stopVoice(false)} title={text.cancel}>
+                <X size={17} />
               </button>
-            ) : (
-              <button
-                className="iconRound sendCircle stopCircle"
-                onClick={() => onStopRun()}
-                title={text.stop}
-              >
-                <Square size={14} />
+              <button className="iconRound sendCircle" onClick={() => stopVoice(true)} title={text.send}>
+                <ArrowUp size={18} />
               </button>
-            )
+            </div>
           ) : (
-            <button
-              className="iconRound sendCircle"
-              disabled={(!value.trim() && !attachments.length) || thinking || !cliOptions.length}
-              onClick={() => onSend()}
-              title={text.send}
-            >
-              <ArrowUp size={16} />
-            </button>
+            <>
+              <textarea
+                ref={composerRef}
+                className="codeChatInput"
+                value={value}
+                placeholder={runActive ? text.steeringPlaceholder : text.composerPlaceholder}
+                onChange={(e) => onChange(e.target.value)}
+                onPaste={(e) => {
+                  const images = Array.from(e.clipboardData.items)
+                    .filter((it) => it.type.startsWith("image/"))
+                    .map((it) => it.getAsFile())
+                    .filter((f): f is File => Boolean(f));
+                  if (images.length) {
+                    e.preventDefault();
+                    images.forEach((file) => onAddImage(file));
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    if (runActive) {
+                      if (value.trim()) { onAddNote(value); onChange(""); }
+                    } else onSend();
+                  }
+                }}
+                rows={1}
+              />
+              <div className="composerBar">
+                <div className="composerBarLeft">
+                  <button className="iconRound" onClick={() => fileInputRef.current?.click()} title={text.addImage}>
+                    <Plus size={16} />
+                  </button>
+                  {mode === "single" && (
+                    <ModelPicker
+                      language={language}
+                      sources={participantSources}
+                      mode="single"
+                      selected={{ cli: singleCli, model: selectedModel }}
+                      onSelect={(s) => { if (s) { onSingleCliChange(s.cli); onModelChange(s.model); } }}
+                    />
+                  )}
+                  {mode === "single" && (
+                    <select
+                      className="pill"
+                      value={selectedDetailLevel}
+                      title={text.detailLevelTitle}
+                      onChange={(e) => onDetailLevelChange(e.target.value as "low" | "medium" | "high")}
+                    >
+                      <option value="low">{text.detailLow}</option>
+                      <option value="medium">{text.detailMedium}</option>
+                      <option value="high">{text.detailHigh}</option>
+                    </select>
+                  )}
+                </div>
+                <div className="composerBarRight">
+                  <LimitGauge status={status} language={language} />
+                  {voiceSupported && (
+                    <button className="iconRound" onClick={startVoice} title={text.voiceInput}>
+                      <Mic size={16} />
+                    </button>
+                  )}
+                  {runActive ? (
+                    value.trim() ? (
+                      <button
+                        className="iconRound sendCircle"
+                        onClick={() => { onAddNote(value); onChange(""); }}
+                        title={text.addNote}
+                      >
+                        <ArrowUp size={16} />
+                      </button>
+                    ) : (
+                      <button
+                        className="iconRound sendCircle stopCircle"
+                        onClick={() => onStopRun()}
+                        title={text.stop}
+                      >
+                        <Square size={14} />
+                      </button>
+                    )
+                  ) : (
+                    <button
+                      className="iconRound sendCircle"
+                      disabled={(!value.trim() && !attachments.length) || thinking || !cliOptions.length}
+                      onClick={() => onSend()}
+                      title={text.send}
+                    >
+                      <ArrowUp size={16} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </>
           )}
         </div>
       </div>

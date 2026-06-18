@@ -203,13 +203,42 @@ button {
   cursor: pointer;
 }
 
+/* Tema uyumlu ince scrollbar'lar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(129, 140, 248, 0.4) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(129, 140, 248, 0.35);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(129, 140, 248, 0.65);
+  background-clip: padding-box;
+}
+
 .appShell {
-  width: min(1540px, calc(100vw - 48px));
-  margin: 0 auto;
-  padding: 10px 0 10px;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0;
   height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow-x: hidden; /* yatay scroll asla olmasın */
 }
 
 .appHeader {
@@ -229,7 +258,7 @@ button {
 }
 
 .brand strong {
-  font-size: 1.7rem;
+  font-size: 1.25rem;
   line-height: 1;
   font-weight: 900;
   letter-spacing: 0;
@@ -239,7 +268,7 @@ button {
 }
 
 .logo {
-  height: 50px;
+  height: 32px;
   width: auto;
   object-fit: contain;
 }
@@ -670,9 +699,11 @@ textarea:focus {
 
 .chatPanel {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  /* Header kaldırıldı: mesajlar 1fr (genişler), composer alta sabit (code gibi). */
+  grid-template-rows: minmax(0, 1fr) auto;
   gap: 12px;
   min-height: 0;
+  height: 100%;
 }
 
 .chatHeader {
@@ -870,7 +901,12 @@ textarea:focus {
 .composerArea {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
+}
+
+/* Mode butonları code'daki gibi sola yaslı. */
+.composerArea > .modeSwitch {
+  align-self: flex-start;
 }
 
 .modeSwitch {
@@ -1036,13 +1072,13 @@ textarea:focus {
 .composerBox {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 14px 16px 12px;
-  border-radius: 20px;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: 12px;
   border: var(--composer-border);
   background: var(--composer-bg);
   backdrop-filter: blur(12px);
-  box-shadow: var(--composer-shadow);
+  box-shadow: none;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -1061,11 +1097,13 @@ textarea:focus {
   box-shadow: none;
   padding: 2px 6px;
   min-height: 24px;
-  max-height: 160px;
+  height: 24px;
   resize: none;
+  overflow-y: hidden;
   font-size: 0.9rem;
   line-height: 1.4;
   color: var(--text-primary);
+  transition: height 0.14s ease;
 }
 
 .composerInput:focus {
@@ -2278,8 +2316,8 @@ textarea:focus {
 .codeLayout {
   grid-column: 1 / -1;
   display: grid;
-  /* Sol: Ajan Merkezi (limitler) · Orta: chat · Sağ: dosya gezgini */
-  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr) minmax(240px, 300px);
+  /* Sol: Gezgin + Projeler + Limit · Orta: chat. Terminal açılınca 3. kolon (bkz. .termOpen). */
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
   gap: 12px;
   align-items: stretch;
   min-height: calc(100vh - 118px);
@@ -2347,6 +2385,327 @@ textarea:focus {
   font-size: 0.66rem;
 }
 
+/* Önizleme butonu chat üstünde yüzer (proje adı kaldırıldı, chat üste uzadı). */
+.codeChatPanel {
+  position: relative;
+}
+
+.codeChatFloatTools {
+  position: absolute;
+  top: 2px;
+  right: 6px;
+  z-index: 6;
+}
+
+/* OpenRouter-fusion tarzı model seçici (Add Model / Fuse with) */
+.modelPicker {
+  position: relative;
+  display: flex;
+  min-width: 0;
+}
+
+.modelPickerTrigger {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.addModelBtn,
+.fuseWithBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: 9px;
+  border: 1px dashed rgba(148, 163, 184, 0.32);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.addModelBtn:hover,
+.fuseWithBtn:hover {
+  color: var(--text-primary);
+  border-color: rgba(129, 140, 248, 0.5);
+  background: rgba(129, 140, 248, 0.08);
+}
+
+.fuseWithBtn {
+  border-style: solid;
+}
+
+.fuseWithBtn .fuseLabel { color: var(--text-muted); font-weight: 500; }
+.fuseWithBtn .fuseModel { color: var(--text-primary); }
+
+.modelPickerDialog {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 70;
+  width: 300px;
+  max-height: 360px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: var(--card-bg);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.45);
+  animation: fadeInSoft 0.14s ease;
+  overflow: hidden;
+}
+
+.modelPickerSearch {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 11px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+  color: var(--text-muted);
+}
+
+.modelPickerSearch input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  outline: none;
+}
+
+.modelPickerList {
+  overflow-y: auto;
+  padding: 5px;
+}
+
+.modelPickerGroup {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 8px 4px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.modelPickerGroup .agentIcon {
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+}
+
+.modelPickerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.modelPickerRow:hover { background: rgba(148, 163, 184, 0.1); }
+.modelPickerRow.selected { background: rgba(129, 140, 248, 0.16); color: var(--text-primary); }
+.modelPickerRow:disabled { opacity: 0.4; cursor: not-allowed; }
+.modelPickerRow .modelPickerRowName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.modelPickerRow svg { color: #818cf8; flex: none; }
+
+.modelPickerEmpty {
+  padding: 14px;
+  text-align: center;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+/* Chat alanındaki limit göstergesi (donut) + tıklayınca küçük popup */
+.limitGauge {
+  position: relative;
+  display: inline-flex;
+}
+
+.limitGaugeBtn {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.limitGaugeBtn:hover { background: rgba(148, 163, 184, 0.12); }
+
+.limitGaugePct {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 0.6rem;
+  font-weight: 800;
+}
+
+.limitPopup {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  z-index: 60;
+  width: 250px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: var(--card-bg);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.42);
+  animation: fadeInSoft 0.15s ease;
+}
+
+.limitPopupHead {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.limitPopupHead strong { margin-left: auto; }
+.limitPopupEmpty { font-size: 0.74rem; color: var(--muted); margin: 0; }
+
+.limitPopupRow {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.limitPopupName {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.76rem;
+  color: var(--text-primary);
+}
+
+.limitPopupName .agentIcon {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+}
+
+.limitMiniHead {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.66rem;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+
+.limitMiniTrack {
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.18);
+  overflow: hidden;
+}
+
+.limitMiniFill {
+  height: 100%;
+  border-radius: 999px;
+  background: #22c55e;
+}
+
+.limitMiniFill.warn { background: #f59e0b; }
+.limitMiniFill.danger { background: #ef4444; }
+
+/* Mesaj alt satırı: zaman + kopyala (hover'da belirir) */
+.bubbleFooter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.chatBubble.user .bubbleFooter {
+  justify-content: flex-end;
+}
+
+.copyBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s, background 0.12s;
+}
+
+.chatBubble:hover .copyBtn {
+  opacity: 1;
+}
+
+.copyBtn:hover {
+  color: var(--text-primary);
+  background: rgba(148, 163, 184, 0.14);
+}
+
+.copyBtn.copied {
+  opacity: 1;
+  color: #22c55e;
+}
+
+/* Katlanır Limit Yönetimi kartı */
+.agentCenterPanel {
+  flex-shrink: 0;
+}
+
+.agentCenterToggle {
+  cursor: pointer;
+  user-select: none;
+  border-radius: 10px;
+  transition: background 0.15s;
+}
+
+.agentCenterPanel:not(.open) {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.agentCenterToggle:hover {
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.agentCenterToggleRight {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+}
+
 .fileExplorerCol {
   width: auto;
   min-width: 0;
@@ -2363,6 +2722,7 @@ textarea:focus {
   min-height: 0;
 }
 
+/* Sol kol YEKPARE: tüm paneller doğal boyda, kolon TEK scrollbar ile kayar. */
 .codeLeftCol {
   width: auto;
   min-width: 200px;
@@ -2370,8 +2730,81 @@ textarea:focus {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  overflow-y: auto;
+  height: 100%;
   min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* İç panellerin AYRI scrollbar'ı olmasın — hepsi doğal yükseklik. */
+.codeLeftCol > .sidebarHeader,
+.codeLeftCol > .fileExplorer,
+.codeLeftCol > .projectPanel,
+.codeLeftCol > .agentCenterPanel {
+  flex: none;
+}
+
+.codeLeftCol .fileExplorer { max-height: none; }
+.codeLeftCol .explorerBody { overflow: visible; flex: none; }
+.codeLeftCol .projectList { overflow: visible; }
+.codeLeftCol .agentCenterPanel.open { max-height: none; overflow: visible; }
+
+/* YEKPARE SIDEBAR: tek yüzey, üst/alt/sol kenara tam yaslı (boşluk yok). */
+.leftColumn:not(.collapsed),
+.codeLeftCol:not(.collapsed) {
+  gap: 0;
+  padding: 0;
+  background: var(--panel-bg);
+  border: none;
+  border-right: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 0;
+  backdrop-filter: blur(16px);
+  box-shadow: var(--panel-shadow);
+}
+
+.leftColumn:not(.collapsed) > .glassPanel,
+.leftColumn:not(.collapsed) > .sidebarHeader,
+.codeLeftCol:not(.collapsed) > .glassPanel,
+.codeLeftCol:not(.collapsed) > .sidebarHeader {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  border-radius: 0;
+  margin: 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.leftColumn:not(.collapsed) > :last-child,
+.codeLeftCol:not(.collapsed) > :last-child {
+  border-bottom: none;
+}
+
+/* 2.resimdeki üst alan (logo + tema/dil) scroll'da sabit kalır. */
+.leftColumn:not(.collapsed) > .sidebarHeader,
+.codeLeftCol:not(.collapsed) > .sidebarHeader {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--panel-bg);
+  backdrop-filter: blur(16px);
+}
+
+/* Center alanına nefes payı (sidebar flush ama chat kenara yapışmasın). */
+.centerColumn,
+.codeCenterCol {
+  padding: 10px 12px 10px 0;
+}
+
+/* Sohbet ↔ Kodlama geçişinde yumuşak fade */
+.centerColumn,
+.codeCenterCol {
+  animation: viewFade 0.24s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes viewFade {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
 }
 
 .codeCenterCol {
@@ -3240,6 +3673,241 @@ textarea:focus {
   white-space: nowrap;
 }
 
+/* Satır aksiyonları: ChatGPT tarzı — sadece hover/aktif/menü açık iken görünür */
+.rowAction { opacity: 0; transition: opacity 0.12s; }
+.projectRow:hover .rowAction,
+.projectRow.active .rowAction { opacity: 1; }
+
+.rowMenuWrap { position: relative; display: flex; }
+/* Menü açıkken ⋯ butonu görünür kalsın */
+.rowMenuWrap:has(.rowMenu) .rowAction { opacity: 1; }
+
+.rowMenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 40;
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  padding: 5px;
+  border-radius: 11px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: var(--card-bg);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.4);
+}
+
+.rowMenu button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rowMenu button:hover { background: rgba(148, 163, 184, 0.12); }
+.rowMenu button.danger { color: #ef4444; }
+.rowMenu button.danger:hover { background: rgba(239, 68, 68, 0.12); }
+
+/* Panel arama + genişletilebilir oturumlar (Aşama 2) */
+.panelSearch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 4px;
+  padding: 5px 9px;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(148, 163, 184, 0.06);
+  color: var(--muted);
+}
+
+.panelSearch input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  outline: none;
+}
+
+.projectGroup {
+  display: flex;
+  flex-direction: column;
+}
+
+.projectChevron {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 26px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.sessionList {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 1px 0 4px 22px;
+  border-left: 1px solid rgba(148, 163, 184, 0.14);
+  padding-left: 4px;
+}
+
+.sessionList.flat {
+  margin-left: 0;
+  border-left: none;
+  padding-left: 0;
+}
+
+.sessionEmpty {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin: 3px 6px;
+}
+
+.sessionRow {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 7px;
+}
+
+.sessionRow:hover { background: rgba(148, 163, 184, 0.08); }
+.sessionRow.active { background: rgba(129, 140, 248, 0.16); }
+
+.sessionNameBtn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 7px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.sessionRow.active .sessionNameBtn { color: var(--text-primary); font-weight: 600; }
+
+.sessionNameText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sessionDelete {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 26px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.sessionRow:hover .sessionDelete { opacity: 1; }
+.sessionDelete:hover { color: #ef4444; }
+
+.showMoreBtn {
+  margin: 4px 2px 2px;
+  padding: 5px 8px;
+  border: 1px dashed rgba(148, 163, 184, 0.25);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.74rem;
+  cursor: pointer;
+}
+
+.showMoreBtn:hover { color: var(--text-primary); border-color: rgba(129, 140, 248, 0.4); }
+
+/* Temalı metin giriş modalı (Aşama 4) */
+.promptOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 16vh;
+  background: rgba(2, 6, 18, 0.5);
+  backdrop-filter: blur(3px);
+}
+
+.promptDialog {
+  width: min(420px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: var(--card-bg);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+}
+
+.promptTitle {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.promptInput {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: rgba(148, 163, 184, 0.08);
+  color: var(--text-primary);
+  font-size: 0.88rem;
+  outline: none;
+}
+
+.promptInput:focus { border-color: rgba(129, 140, 248, 0.6); }
+
+.promptActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.primaryButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 9px;
+  border: none;
+  background: linear-gradient(135deg, #818cf8, #6366f1);
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.primaryButton:disabled { opacity: 0.5; cursor: not-allowed; }
+.primaryButton:not(:disabled):hover { filter: brightness(1.08); }
+
 .teamWorkDesc {
   margin: 0 0 6px;
   color: var(--muted);
@@ -3501,32 +4169,48 @@ textarea:focus {
   flex-wrap: wrap;
 }
 
+/* Code metin kutusu chat'teki .composerBox ile aynı: yuvarlak birleşik kart, textarea içte kenarlıksız. */
 .codeChatInputRow {
   display: flex;
   gap: 6px;
-  align-items: flex-end;
+  align-items: center;
+  padding: 7px 10px;
+  border-radius: 12px;
+  border: var(--composer-border);
+  background: var(--composer-bg);
+  backdrop-filter: blur(12px);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.codeChatInputRow:focus-within {
+  border-color: rgba(129, 140, 248, 0.5);
 }
 
 .codeChatInput {
-  flex: 1;
+  width: 100%;
   resize: none;
+  overflow-y: hidden;
   font-family: var(--font-family);
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   line-height: 1.4;
   min-height: 24px;
-  max-height: 140px;
-  border: var(--input-border);
-  border-radius: 10px;
-  background: var(--input-bg);
-  color: var(--input-text);
-  padding: 7px 12px;
-  backdrop-filter: blur(12px);
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  padding: 2px 6px;
   outline: none;
-  transition: border 0.2s;
+  transition: height 0.14s ease;
+}
+
+/* Code composer kutusu chat ile aynı; mode switch sola yaslı. */
+.codeChatComposer > .modeSwitch {
+  align-self: flex-start;
 }
 
 .codeChatInput:focus {
-  border-color: var(--icon-color);
+  outline: none;
+  box-shadow: none;
 }
 
 /* ─── File Viewer ─── */
@@ -3708,21 +4392,73 @@ textarea:focus {
   font-size: 0.68rem;
 }
 
+/* Terminal artık codeLayout'un sağ kolonu — açılınca chat daralır, yatay sürüklenebilir. */
 .integratedTerminal {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 80;
-  height: clamp(230px, 32vh, 420px);
-  min-height: 220px;
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   border: 1px solid rgba(148, 163, 184, 0.18);
-  border-radius: 14px 14px 0 0;
+  border-radius: 14px;
   background: #020409;
-  box-shadow: 0 -18px 50px rgba(0, 0, 0, 0.44), inset 0 4px 24px rgba(0, 0, 0, 0.48);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.44), inset 0 4px 24px rgba(0, 0, 0, 0.48);
+  animation: termIn 0.24s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes termIn {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Kapalı terminal düğmesi de yumuşak belirsin */
+.terminalCollapsed {
+  animation: fadeInSoft 0.2s ease;
+}
+
+@keyframes fadeInSoft {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Sol kenardan genişlik ayar tutamacı */
+.terminalResizer {
+  position: absolute;
+  left: -4px;
+  top: 0;
+  bottom: 0;
+  width: 9px;
+  z-index: 5;
+  cursor: col-resize;
+}
+
+.terminalResizer::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.terminalResizer:hover::after {
+  background: rgba(129, 140, 248, 0.55);
+}
+
+/* Gerçek terminal hissi: çıktı + komut satırı tek kaydırılabilir ekran. */
+.terminalScreen {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  cursor: text;
+  padding: 8px 0;
 }
 
 .terminalTopbar {
@@ -3770,27 +4506,66 @@ textarea:focus {
 }
 
 .integratedTerminalOutput {
-  flex: 1;
+  flex: none;
   margin: 0;
-  overflow: auto;
-  padding: 10px 12px;
+  padding: 0 12px;
+  max-width: 100%;
   color: #dbeafe;
   font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
-  font-size: 0.78rem;
-  line-height: 1.45;
+  font-size: 0.74rem;
+  line-height: 1.5;
   white-space: pre-wrap;
-  word-break: break-word;
+  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 
+/* Komut satırı çıktının hemen altında, kutusuz — gerçek terminal gibi. */
 .terminalInputRow {
-  height: 34px;
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 8px;
-  border-top: 1px solid rgba(148, 163, 184, 0.16);
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  padding: 0 12px;
+  max-width: 100%;
   color: #60a5fa;
   font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+  font-size: 0.74rem;
+  line-height: 1.5;
+}
+
+.terminalPrompt {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: #60a5fa;
+  white-space: normal;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+}
+
+/* Terminal üst bar aksiyonları: + menüsü + kopyala */
+.terminalNewWrap {
+  position: relative;
+  display: flex;
+}
+
+.terminalShellMenu {
+  min-width: 170px;
+}
+
+.terminalCopyBtn {
+  opacity: 1 !important;
+  width: 28px;
+  height: 28px;
+  color: #cbd5e1;
+}
+
+.terminalCopyBtn:hover {
+  background: rgba(148, 163, 184, 0.18);
+  color: #fff;
+}
+
+.terminalCopyBtn.copied {
+  color: #22c55e;
 }
 
 .terminalInputRow input {
@@ -3801,6 +4576,7 @@ textarea:focus {
   background: transparent;
   color: #f8fafc;
   font: inherit;
+  padding: 0;
 }
 
 .terminalEmpty {
@@ -3930,4 +4706,275 @@ textarea:focus {
   .previewToggleBtn {
     display: none;
   }
+}
+
+/* ─── Orkestra Layout Redesign Overrides ─── */
+.appShell {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+}
+
+/* Chat ve Code modu AYNI ölçü: 280px sidebar + esnek orta (760px ortalı içerik). */
+.workspace {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+  transition: grid-template-columns 0.26s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Sidebar kapalıyken (chat view): dar ikon rayı (60px). */
+.workspace.sidebarCollapsed {
+  grid-template-columns: 60px minmax(0, 1fr);
+}
+
+.codeLayout {
+  grid-column: 1 / -1;
+  display: grid;
+  /* Sol: Gezgin + Projeler + Limit · Orta: chat (ortalı). Terminal açılınca 3. kolon. */
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 12px;
+  align-items: stretch;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  width: 100%;
+  min-width: 0;
+  transition: grid-template-columns 0.26s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Sidebar kapalıyken (code view): dar ikon rayı (60px). */
+.codeLayout.sidebarCollapsed {
+  grid-template-columns: 60px minmax(0, 1fr);
+}
+
+.codeLayout.sidebarCollapsed.termOpen {
+  grid-template-columns: 60px minmax(0, 1fr) var(--term-w, 440px);
+}
+
+/* Sidebar aç/kapa butonları */
+.brand {
+  width: 100%;
+  min-width: 0;
+}
+
+.brandMain {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.brandMain strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ChatGPT tarzı sade panel tuşu */
+.sidebarCollapseBtn {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.sidebarCollapseBtn:hover {
+  color: var(--text-primary);
+  background: rgba(148, 163, 184, 0.14);
+}
+
+/* Kapalı ray: logo; üzerine gelince aç/kapa tuşuna dönüşür */
+.railLogoBtn {
+  position: relative;
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  margin-bottom: 6px;
+}
+
+.railLogoBtn .railLogo {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  border-radius: 10px;
+  transition: opacity 0.15s;
+}
+
+.railLogoBtn .railLogoToggle {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  color: var(--text-primary);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+/* Barın herhangi bir yerine gelince logo→toggle */
+.sidebarRail:hover .railLogo { opacity: 0; }
+.sidebarRail:hover .railLogoBtn { background: rgba(148, 163, 184, 0.14); }
+.sidebarRail:hover .railLogoToggle { opacity: 1; }
+
+/* Kapalı sidebar: dar ikon rayı */
+.leftColumn.collapsed,
+.codeLeftCol.collapsed {
+  overflow: hidden;
+  min-width: 0;
+}
+
+.sidebarRail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+  padding: 10px 0;
+  border-radius: 14px;
+  border: var(--panel-border);
+  background: var(--panel-bg);
+  backdrop-filter: blur(16px);
+  box-shadow: var(--panel-shadow);
+}
+
+.railBtn {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.railBtn:hover {
+  color: var(--text-primary);
+  background: rgba(129, 140, 248, 0.16);
+}
+
+.railSpacer {
+  flex: 1;
+}
+
+.codeLayout.termOpen {
+  grid-template-columns: 280px minmax(0, 1fr) var(--term-w, 440px);
+}
+
+/* Sürükleyerek boyutlandırırken geçiş kapalı (kasma olmasın). */
+.codeLayout.resizing {
+  transition: none;
+}
+
+.codeLayout.resizing .integratedTerminal {
+  animation: none;
+}
+
+.centerColHeader {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 4px 0 10px;
+  flex-shrink: 0;
+}
+
+.chatPanel.glassPanel,
+.codeChatPanel.glassPanel {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  padding: 0;
+}
+
+.chatHeader,
+.codeChatHeader {
+  max-width: 760px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.chatMessages,
+.codeChatMessages {
+  max-width: 760px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 16px 8px 16px 0;
+}
+
+.composerArea,
+.codeChatComposer {
+  max-width: 760px;
+  width: 100%;
+  margin: 0 auto;
+  background: transparent !important;
+  border: none !important;
+  padding: 10px 0 0 !important;
+}
+
+.sidebarHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 14px;
+  border: var(--panel-border);
+  background: var(--panel-bg);
+  backdrop-filter: blur(16px);
+  box-shadow: var(--panel-shadow);
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+
+.sidebarHeader .brand {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sidebarHeaderActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+  padding-top: 8px;
+  margin-top: 4px;
+}
+
+.sidebarHeaderActions .languageSwitch {
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.sidebarHeaderActions .connectionPill {
+  padding: 4px 10px;
+}
+
+.codeChatSection.codeChatFull {
+  max-height: none;
+  height: 100%;
 }
