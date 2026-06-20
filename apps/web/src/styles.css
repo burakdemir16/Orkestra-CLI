@@ -4626,6 +4626,32 @@ textarea:focus {
   flex-shrink: 0;
 }
 
+.copyTextBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--button-hover-bg);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.copyTextBtn:hover {
+  border-color: var(--accent);
+}
+
+.copyTextBtn.copied {
+  color: #22c55e;
+  border-color: #22c55e;
+}
+
 .fileTabs {
   flex: 1;
   min-width: 0;

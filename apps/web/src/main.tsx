@@ -6476,6 +6476,17 @@ function FileDialog({
 }) {
   const text = uiText[language];
   const activeTab = tabs.find((tab) => tab.path === activePath) ?? tabs[0];
+  const [copied, setCopied] = useState(false);
+  const copyActive = async () => {
+    if (!activeTab) return;
+    try {
+      await navigator.clipboard.writeText(activeTab.content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch (err) {
+      console.error("[Orkestra] kopyalanamadı:", err);
+    }
+  };
 
   return (
     <div className="fileDialogOverlay" onMouseDown={onClose}>
@@ -6520,6 +6531,16 @@ function FileDialog({
                   }}
                 >
                   <Download size={15} />
+                </button>
+              )}
+              {activeTab && (
+                <button
+                  className={`copyTextBtn${copied ? " copied" : ""}`}
+                  title={copied ? text.copied : text.copyMessage}
+                  onClick={copyActive}
+                >
+                  {copied ? <CheckCircle2 size={15} /> : <Copy size={15} />}
+                  <span>{copied ? text.copied : text.copyMessage}</span>
                 </button>
               )}
               {activeTab && <VsCodeButton path={activeTab.path} label={text.openInVscode} />}

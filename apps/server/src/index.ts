@@ -743,7 +743,61 @@ app.post<{ Body: { path?: string } }>("/api/open-folder", async (request, reply)
   if (!existsSync(resolved)) return reply.code(404).send({ error: "Folder not found" });
   try {
     if (process.platform === "win32") {
+      // 1) Açmayı GARANTİ et: explorer.exe doğrudan (eski güvenilir yol).
       spawn("explorer.exe", [resolved], { detached: true, stdio: "ignore" }).unref();
+      // 2) Öne-alma AYRI bir PS süreci: açılan Explorer penceresini yola göre bulup
+      //    ALT-tuşu hilesiyle foreground'a çeker. Bu süreç hata verse bile (Add-Type vb.)
+      //    klasör adım 1'de zaten açılmıştır.
+      const escaped = resolved.replace(/'/g, "''");
+      const ps1 = `$ErrorActionPreference = 'SilentlyContinue'
+$target = '${escaped}'
+try {
+$code = @'
+using System;
+using System.Runtime.InteropServices;
+public static class Fg {
+  [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] private static extern bool BringWindowToTop(IntPtr h);
+  [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr h, int n);
+  [DllImport("user32.dll")] private static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+  [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr h, IntPtr pid);
+  [DllImport("user32.dll")] private static extern bool AttachThreadInput(uint a, uint b, bool attach);
+  [DllImport("user32.dll", SetLastError = true)] private static extern bool SystemParametersInfo(uint act, uint p, IntPtr v, uint ini);
+  [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
+  public static void Bring(IntPtr h) {
+    // Windows foreground-lock'u geçici devre dışı bırak → SetForegroundWindow saygı görür.
+    SystemParametersInfo(0x2001, 0, IntPtr.Zero, 0); // SPI_SETFOREGROUNDLOCKTIMEOUT = 0
+    ShowWindow(h, 9); // SW_RESTORE
+    // Hedef pencerenin input thread'ine bağlan → foreground hakkını paylaş.
+    uint fgThread = GetWindowThreadProcessId(GetForegroundWindow(), IntPtr.Zero);
+    uint mine = GetCurrentThreadId();
+    AttachThreadInput(fgThread, mine, true);
+    keybd_event(0x12, 0, 0, UIntPtr.Zero); // ALT down
+    keybd_event(0x12, 0, 2, UIntPtr.Zero); // ALT up
+    BringWindowToTop(h);
+    SetForegroundWindow(h);
+    AttachThreadInput(fgThread, mine, false);
+  }
+}
+'@
+Add-Type -TypeDefinition $code -Language CSharp
+Start-Sleep -Milliseconds 900
+$norm = $target.TrimEnd('\')
+$shell = New-Object -ComObject Shell.Application
+foreach ($w in $shell.Windows()) {
+  try {
+    $p = $w.Document.Folder.Self.Path
+    if ($p -and ($p.TrimEnd('\') -ieq $norm)) { [Fg]::Bring([IntPtr]$w.HWND); break }
+  } catch {}
+}
+} catch {}
+`;
+      const scriptFile = join(config.dataDir, "open-folder.ps1");
+      try {
+        writeFileSync(scriptFile, ps1, "utf8");
+        spawn("powershell", ["-NoProfile", "-STA", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", scriptFile], { detached: true, stdio: "ignore", windowsHide: true }).unref();
+      } catch { /* öne-alma opsiyonel; klasör zaten açıldı */ }
     } else if (process.platform === "darwin") {
       spawn("open", [resolved], { detached: true, stdio: "ignore" }).unref();
     } else {
