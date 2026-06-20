@@ -3171,6 +3171,7 @@ function App() {
                 rootPath={activeRun?.workspacePath ?? projectWorkspace ?? null}
                 refreshKey={workspaceFileEventCount}
                 onOpenFile={(path) => void openFileInDialog(path)}
+                label={projects.find((p) => p.id === activeProjectId)?.name}
               />
               <ProjectPanel
                 language={language}
@@ -6268,14 +6269,18 @@ function FileExplorer({
   language,
   onOpenFile,
   rootPath,
-  refreshKey = 0
+  refreshKey = 0,
+  label
 }: {
   language: Language;
   onOpenFile: (path: string) => void;
   rootPath: string | null;
   refreshKey?: number;
+  label?: string;
 }) {
   const text = uiText[language];
+  // Başlık: aktif klasör/proje adı (yoksa "Gezgin").
+  const headTitle = label || (rootPath ? rootPath.split(/[\\/]/).filter(Boolean).pop() : "") || text.explorer;
   const [rootEntries, setRootEntries] = useState<FileEntry[]>([]);
   const [expanded, setExpanded] = useState<Record<string, FileEntry[]>>({});
   const [loading, setLoading] = useState(Boolean(rootPath));
@@ -6360,9 +6365,6 @@ function FileExplorer({
               )}
               <span className="explorerName">{entry.name}</span>
             </button>
-            <span className="explorerVscodeBtn">
-              <VsCodeButton path={entry.path} label={text.openInVscode} compact />
-            </span>
           </div>
           {isOpen && expanded[entry.path] && renderEntries(expanded[entry.path], depth + 1)}
         </div>
@@ -6372,9 +6374,9 @@ function FileExplorer({
   return (
     <section className="glassPanel fileExplorer">
       <div className="panelTitle split">
-        <span>
+        <span title={rootPath ?? undefined}>
           <Folder size={15} />
-          {text.explorer}
+          <span className="explorerTitleText">{headTitle}</span>
         </span>
         <span className="explorerHeadActions">
           <button

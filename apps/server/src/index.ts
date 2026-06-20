@@ -599,26 +599,85 @@ app.post("/api/projects/open", async (_request, reply) => {
   if (process.platform !== "win32") {
     return reply.code(400).send({ error: "Klasör seçici şu an yalnızca Windows'ta destekleniyor." });
   }
-  const script = [
-    "Add-Type -AssemblyName System.Windows.Forms | Out-Null",
-    "Add-Type -AssemblyName System.Drawing | Out-Null",
-    "$owner = New-Object System.Windows.Forms.Form",
-    "$owner.TopMost = $true",
-    "$owner.ShowInTaskbar = $false",
-    "$owner.StartPosition = 'CenterScreen'",
-    "$owner.Size = New-Object System.Drawing.Size(1,1)",
-    "$owner.Opacity = 0",
-    "$owner.Show() | Out-Null",
-    "$owner.Activate()",
-    "$f = New-Object System.Windows.Forms.FolderBrowserDialog",
-    "$f.Description = 'Orkestra: proje klasorunu sec'",
-    "$f.ShowNewFolderButton = $true",
-    "$res = $f.ShowDialog($owner)",
-    "$owner.Close()",
-    "if ($res -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($f.SelectedPath) }"
-  ].join("\n");
+  // Modern Explorer-stili klasör seçici: IFileOpenDialog (FOS_PICKFOLDERS) — eski ağaç dialog'u değil.
+  // C# COM arayüzü Add-Type ile derlenir. Escape sorunu olmasın diye script'i temp .ps1'e yazıp -File ile çalıştırırız.
+  const ps1 = `$ErrorActionPreference = 'SilentlyContinue'
+$code = @'
+using System;
+using System.Runtime.InteropServices;
+public static class ModernFolderPicker {
+  [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] private static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+  // Arka-plan süreçte foreground hakkı al: ALT bas-bırak hilesi + SetForegroundWindow.
+  public static void ForceForeground(IntPtr h) {
+    keybd_event(0x12, 0, 0, UIntPtr.Zero); // ALT down
+    keybd_event(0x12, 0, 2, UIntPtr.Zero); // ALT up
+    SetForegroundWindow(h);
+  }
+  public static string Show(IntPtr owner) {
+    IFileOpenDialog dlg = (IFileOpenDialog)new FileOpenDialogRCW();
+    uint opts; dlg.GetOptions(out opts);
+    dlg.SetOptions(opts | 0x20 | 0x40); // FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM
+    dlg.SetTitle("Orkestra: proje klasoru sec");
+    int hr = dlg.Show(owner);
+    if (hr != 0) return "";
+    IShellItem item; dlg.GetResult(out item);
+    string path; item.GetDisplayName(0x80058000u, out path); // SIGDN_FILESYSPATH
+    return path;
+  }
+  [ComImport, ClassInterface(ClassInterfaceType.None), Guid("DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7")]
+  private class FileOpenDialogRCW { }
+  [ComImport, Guid("d57c7288-d4ad-4768-be02-9d969532d960"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+  private interface IFileOpenDialog {
+    [PreserveSig] int Show(IntPtr parent);
+    void SetFileTypes(uint a, IntPtr b);
+    void SetFileTypeIndex(uint a);
+    void GetFileTypeIndex(out uint a);
+    void Advise(IntPtr a, out uint b);
+    void Unadvise(uint a);
+    void SetOptions(uint fos);
+    void GetOptions(out uint fos);
+    void SetDefaultFolder(IShellItem a);
+    void SetFolder(IShellItem a);
+    void GetFolder(out IShellItem a);
+    void GetCurrentSelection(out IShellItem a);
+    void SetFileName([MarshalAs(UnmanagedType.LPWStr)] string a);
+    void GetFileName([MarshalAs(UnmanagedType.LPWStr)] out string a);
+    void SetTitle([MarshalAs(UnmanagedType.LPWStr)] string t);
+    void SetOkButtonLabel([MarshalAs(UnmanagedType.LPWStr)] string a);
+    void SetFileNameLabel([MarshalAs(UnmanagedType.LPWStr)] string a);
+    void GetResult(out IShellItem item);
+  }
+  [ComImport, Guid("43826d1e-e718-42ee-bc55-a1e261c37bfe"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+  private interface IShellItem {
+    void BindToHandler(IntPtr a, ref Guid b, ref Guid c, out IntPtr d);
+    void GetParent(out IShellItem a);
+    void GetDisplayName(uint sigdn, [MarshalAs(UnmanagedType.LPWStr)] out string name);
+    void GetAttributes(uint a, out uint b);
+    void Compare(IShellItem a, uint b, out int c);
+  }
+}
+'@
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+Add-Type -TypeDefinition $code -Language CSharp
+$owner = New-Object System.Windows.Forms.Form
+$owner.TopMost = $true
+$owner.ShowInTaskbar = $false
+$owner.StartPosition = 'CenterScreen'
+$owner.Size = New-Object System.Drawing.Size(1,1)
+$owner.Opacity = 0
+$owner.Show()
+[System.Windows.Forms.Application]::DoEvents()
+[ModernFolderPicker]::ForceForeground($owner.Handle)
+$p = [ModernFolderPicker]::Show($owner.Handle)
+$owner.Close()
+if ($p) { [Console]::Out.Write($p) }
+`;
+  const scriptFile = join(config.dataDir, "pick-folder.ps1");
+  try { writeFileSync(scriptFile, ps1, "utf8"); } catch { /* yoksay */ }
   const { out: selected, err } = await new Promise<{ out: string; err: string }>((res) => {
-    const ps = spawn("powershell", ["-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-Command", script], { windowsHide: true });
+    const ps = spawn("powershell", ["-NoProfile", "-STA", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", scriptFile], { windowsHide: true });
     let out = "";
     let errBuf = "";
     ps.stdout?.on("data", (d) => (out += d.toString()));

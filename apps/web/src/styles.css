@@ -5501,3 +5501,6 @@ textarea:focus {
 /* Projeler basligi: mevcut klasor ac + yeni proje butonlari */
 .projectHeadActions { display:inline-flex; align-items:center; gap:4px; position:relative; }
 .projectNewMenu { position:absolute; top:calc(100% + 4px); right:0; z-index:50; min-width:190px; }
+
+/* Gezgin basliginda klasor/proje adi (uzunsa ellipsis) */
+.explorerTitleText { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:170px; display:inline-block; vertical-align:middle; }
