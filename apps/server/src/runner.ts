@@ -709,7 +709,8 @@ function buildAgentPrompt(prompt: string, agent: Agent, transcript: string, note
     "Previous agent transcript:",
     transcript || "No previous messages.",
     "",
-    "Respond with concrete progress for your role. Keep output concise and actionable."
+    "Respond with concrete progress for your role. Keep output concise and actionable.",
+    "LANGUAGE: write your explanations, summaries and user-facing messages in the SAME language as the user task above (English→English, Turkish→Turkish). Mirror the user's language."
   ].join("\n");
 }
 
