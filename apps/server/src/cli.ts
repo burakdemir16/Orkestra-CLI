@@ -268,7 +268,9 @@ export async function generatePlan(
 
 function buildPlanPrompt(history: ChatMessage[], message?: string, analysis?: string, agentCount?: number) {
   const n = agentCount && agentCount > 1 ? agentCount : 0;
-  const sampleText = message || analysis || history.map((h) => h.content).join(" ");
+  // Dili KULLANICININ yazdığı metinden belirle (analiz AI üretimi olduğundan dili yanıltabilir).
+  const lastUser = [...history].reverse().find((h) => h.role === "user")?.content;
+  const sampleText = message || lastUser || analysis || "";
   const planLangRule = detectLang(sampleText) === "tr"
     ? "DİL: tüm 'title' ve açıklamaları Türkçe yaz."
     : "LANGUAGE: write every task 'title' and description in English. Do not use Turkish.";
