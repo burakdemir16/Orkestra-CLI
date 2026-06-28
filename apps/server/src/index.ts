@@ -1,5 +1,6 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import fastifyStatic from "@fastify/static";
 import * as pty from "node-pty";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -42,6 +43,19 @@ const app = Fastify({ logger: true, bodyLimit: 25 * 1024 * 1024 });
 const uploadsDir = join(config.dataDir, "uploads");
 mkdirSync(uploadsDir, { recursive: true });
 await app.register(cors, { origin: true });
+
+// Üretim / global kurulum: derlenmiş web arayüzünü (dist/web) sunucudan servis et. Geliştirmede
+// (vite ayrı port) bu klasör yoksa atlanır. SPA fallback → istemci rotaları index.html'e düşer.
+const webDist = join(resolve(process.cwd()), "dist", "web");
+if (existsSync(webDist)) {
+  await app.register(fastifyStatic, { root: webDist, wildcard: false });
+  app.setNotFoundHandler((request, reply) => {
+    if (request.method === "GET" && !request.url.startsWith("/api") && !request.url.startsWith("/preview")) {
+      return reply.sendFile("index.html");
+    }
+    return reply.code(404).send({ error: "Not found" });
+  });
+}
 
 type TerminalShell = "powershell" | "cmd";
 type TerminalSession = {

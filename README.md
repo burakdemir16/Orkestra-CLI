@@ -140,13 +140,15 @@ Beyond orchestration, Orkestra is a complete builder's cockpit:
 ```mermaid
 graph TD
     UI[Orkestra Web Dashboard] -->|SSE & REST| Backend[Fastify Backend]
-    Backend -->|Spawns with PTY & STDIN| CLI[Local CLI Sessions]
-    CLI -->|claude-code| Anthropic[Anthropic API]
-    CLI -->|openai-codex| OpenAI[OpenAI API]
-    CLI -->|gemini-cli / agy| Google[Google Gemini API]
+    Backend -->|Spawns with PTY & STDIN| CLI[Local AI CLI Sessions]
+    CLI -->|claude| C1[claude-code CLI → Anthropic]
+    CLI -->|codex| C2[openai-codex CLI → OpenAI]
+    CLI -->|agy| C3[antigravity / gemini CLI → Google]
     Backend -->|WAL Journaling| DB[(SQLite DB)]
     Backend -->|Persistent Workspace| WS[workspaces/run-xxxx]
 ```
+
+> **Orkestra only drives the local CLIs.** It never calls Anthropic/OpenAI/Google APIs directly and never sees your model keys — each CLI manages its own authentication and provider calls. Orkestra spawns the CLI, pipes the prompt over STDIN, and streams the output back.
 
 1. **Ideation (Chat/Debate):** A user submits a prompt. Planners debate and align on code layout.
 2. **Analysis (Operator):** The Operator creates a structured plan from the debate.
@@ -159,31 +161,39 @@ graph TD
 ## 🚀 Getting Started
 
 ### Prerequisites
-Install [Node.js](https://nodejs.org/) (v20 or higher) and the CLI tools you wish to orchestrate. Make sure each CLI is fully authenticated and logged in locally:
+Install [Node.js](https://nodejs.org/) (v20 or higher). You do **not** need to install the AI CLIs by hand — **Orkestra's first-run setup wizard installs and logs you into them for you** (Claude Code, OpenAI Codex, Antigravity/Gemini) with one click. The commands below are only a manual reference/fallback:
 
-| CLI | Install Command | Login Command |
+| CLI | Manual install (optional — wizard does this) | Login |
 | --- | --- | --- |
 | **Claude Code** | `npm install -g @anthropic-ai/claude-code` | `claude auth login` |
 | **OpenAI Codex** | `npm install -g @openai/codex` | `codex login` |
 | **Antigravity / Gemini** | `npm install -g @google/gemini-cli` (or `agy` binary) | `agy login` |
 
-### Quick Start
+> Git is **not** required either — it is bundled (`dugite`).
 
-1. Clone the repository and navigate inside:
-   ```bash
-   git clone https://github.com/burakdemir16/Orkestra-CLI.git
-   cd Orkestra-CLI
-   ```
-2. Install npm dependencies:
-   ```bash
-   npm install
-   ```
-3. Start the development server (runs Vite web app and Fastify backend concurrently):
-   ```bash
-   npm run dev
-   ```
+### Install (recommended — one line)
 
-- **Frontend Interface:** [http://127.0.0.1:5173](http://127.0.0.1:5173)
+Install Orkestra globally straight from GitHub, then run it:
+
+```bash
+npm install -g github:burakdemir16/Orkestra-CLI
+orkestra
+```
+
+`orkestra` starts the local server (serving the built UI) and opens it in your browser at **http://127.0.0.1:8787**. Data and project workspaces are stored under `~/.orkestra`. The setup wizard then walks you through installing/authenticating the CLIs.
+
+> To publish to the public npm registry as `orkestra` (so users can run `npm install -g orkestra`), remove `"private": true` from `package.json` and run `npm publish`.
+
+### Run from source (development)
+
+```bash
+git clone https://github.com/burakdemir16/Orkestra-CLI.git
+cd Orkestra-CLI
+npm install
+npm run dev      # Vite web app + Fastify backend concurrently
+```
+
+- **Frontend (dev):** [http://127.0.0.1:5173](http://127.0.0.1:5173)
 - **Backend API:** [http://127.0.0.1:8787](http://127.0.0.1:8787)
 
 ---

@@ -4,12 +4,26 @@
   "private": true,
   "type": "module",
   "description": "Yerel CLI ajanlarini tek panelden yoneten AI orkestra studyosu.",
+  "bin": {
+    "orkestra": "bin/orkestra.mjs"
+  },
+  "files": [
+    "bin",
+    "apps",
+    "packages",
+    "dist",
+    "vite.config.ts",
+    "tsconfig.json"
+  ],
   "scripts": {
     "dev": "concurrently \"npm:dev:server\" \"npm:dev:web\"",
     "dev:server": "tsx watch apps/server/src/index.ts",
     "dev:web": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
+    "build:web": "vite build",
+    "prepare": "vite build",
     "start": "tsx apps/server/src/index.ts",
+    "orkestra": "node bin/orkestra.mjs",
     "test": "tsx --test apps/server/src/**/*.test.ts"
   },
   "engines": {
@@ -17,6 +31,7 @@
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",
+    "@fastify/static": "^8.3.0",
     "@vitejs/plugin-react": "^6.0.2",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
