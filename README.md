@@ -12,6 +12,8 @@
 
 Instead of paying for third-party API proxies or direct token costs, Orkestra runs as a secure local daemon. It drives your existing CLI sessions directly on your loopback address (`127.0.0.1`), pipes their stdout/stderr stream in real-time, extracts files, tracks live usage limits, and coordinates them as a collaborative software engineering department.
 
+Around that orchestration core, Orkestra ships a full builder's cockpit: a **live diff reviewer**, an **in-app browser preview** (auto-detects React/Vite and static sites), an **integrated terminal** (PowerShell/cmd), a **file explorer**, **document export** (Markdown/PDF/Word/Excel) in Chat mode, desktop **notifications**, and **native GitHub integration** — connect via OAuth Device Flow and create/push/clone repos with an **embedded Git** that works even on machines without Git installed.
+
 ### 🎥 Live Demo Walkthrough
 ![Orkestra Live Demo Walkthrough](docs/images/orkestra_demo.webp)
 
@@ -22,12 +24,15 @@ Instead of paying for third-party API proxies or direct token costs, Orkestra ru
 - [📸 Screenshots](#-screenshots)
 - [🎮 Core Collaboration Modes](#-core-collaboration-modes)
 - [⚡ Key Development Phases (Phase 1 - 6)](#-key-development-phases-phase-1---6)
+- [🔗 Native GitHub Integration](#-native-github-integration)
+- [🛠️ Workspace Tooling](#%EF%B8%8F-workspace-tooling)
 - [⚙️ How It Works](#%EF%B8%8F-how-it-works)
 - [🚀 Getting Started](#-getting-started)
 - [🔧 Configuration (.env)](#-configuration-env)
 - [🧩 Agent Command Mappings (Headless Parameters)](#-agent-command-mappings-headless-parameters)
 - [🔌 API Endpoints](#-api-endpoints)
 - [📦 Project Structure](#-project-structure)
+- [🔒 Privacy & Security](#-privacy--security)
 - [⚖️ License](#%EF%B8%8F-license)
 
 ---
@@ -98,6 +103,38 @@ The user reviews this analysis and clicks **"Bu analize göre kodla" (Code based
 
 ---
 
+## 🔗 Native GitHub Integration
+
+Orkestra talks to GitHub **without depending on the `gh` CLI**, so publishing works on any machine — including ones where the user distributes the app and Git isn't even installed.
+
+- **Embedded Git (`dugite`):** Git is **bundled** with the app. All version-control operations (init, baseline, diff, clone, push) run through the embedded binary, so a system Git install is optional. Each project workspace is its own isolated repository (a `.gitignore` and per-project `git init` keep it from leaking into a parent repo).
+- **One-click connect (OAuth Device Flow):** From the composer **`+` → GitHub → "Connect with GitHub"**, a browser opens GitHub's device page; you approve and you're in. Authentication uses a public OAuth App **Client ID** baked into the app, so **end users never create or paste tokens**. A Personal Access Token flow is available as an advanced fallback.
+- **Create / Push / Clone:**
+  - **Push** a project to a brand-new repo, or paste an existing repo URL to push to it.
+  - Once linked, Orkestra **remembers the repo** and offers a one-click **"Push update"** — no re-asking.
+  - **Clone** a GitHub repo straight into a new project.
+- **Agents can push too:** when connected, the embedded Git in agent processes is authenticated via an **ephemeral HTTP header**, so a coding agent can run `git push` on request. The token is **never written to `.git/config` or disk** in plain text — it is stored encrypted with **Windows DPAPI**.
+- **Pull requests** are opened directly through the GitHub REST API.
+
+> Reachable from three places: the composer **`+` menu**, each project's **⋯ menu**, and the **diff/review panel** ("GitHub'a gönder"). All of them detect whether the project is already linked and push directly if so.
+
+---
+
+## 🛠️ Workspace Tooling
+
+Beyond orchestration, Orkestra is a complete builder's cockpit:
+
+- **🔍 Live Diff Review** — a Claude-Code-style review bar appears at the bottom on every change (during every phase, not just at the end). Open the side panel to inspect per-file unified diffs. The diff is **cumulative across all turns** (computed against the project's first baseline), heavy/generated folders (`node_modules`, `dist`, `build`, …) are excluded, and results are cached + pre-warmed so the panel opens instantly.
+- **🌐 In-App Browser Preview** — auto-detects React/Vite and static projects, runs the dev server, and renders the result in an embedded preview so you can see the app without leaving Orkestra.
+- **💻 Integrated Terminal** — PowerShell / cmd tabs powered by `node-pty` + `@xterm/xterm`, side-by-side with your work.
+- **🗂️ File Explorer** — browse the active project (or any folder you open from your PC), open files in a built-in viewer with **Copy** and **Open in VS Code** actions.
+- **📄 Document Export (Chat mode)** — turn a conversation's output into **Markdown, PDF, Word, Excel, or TXT** with preview cards, then download — no coding required.
+- **🔁 Chat → Code bridge** — promote a planning conversation into a structured Code Task Brief and jump straight into the coding stage, carrying the agreed plan and operator analysis with you.
+- **📂 Open existing / clone** — add any local folder as a project, or clone a GitHub repo, in addition to creating fresh workspaces.
+- **🔔 Desktop notifications** — get pinged when an answer finishes, a phase awaits approval, coding completes, or an error occurs (Service-Worker based, with action buttons).
+
+---
+
 ## ⚙️ How It Works
 
 ```mermaid
@@ -114,7 +151,8 @@ graph TD
 1. **Ideation (Chat/Debate):** A user submits a prompt. Planners debate and align on code layout.
 2. **Analysis (Operator):** The Operator creates a structured plan from the debate.
 3. **Execution (Team Run):** The backend resolves task dependencies and executes commands in the persistent workspace.
-4. **Publishing (Git):** Files are audited, and the user approves Git commits and PR creations.
+4. **Review (Diff):** Changed files stream live; the cumulative diff is reviewable at any time, and a preview/terminal sit alongside.
+5. **Publishing (GitHub):** Files are audited; the user connects GitHub once (Device Flow) and pushes, clones, or opens PRs through the embedded Git + REST API.
 
 ---
 
@@ -159,7 +197,11 @@ ORKESTRA_HOST=127.0.0.1
 ORKESTRA_PORT=8787
 ORKESTRA_DATA_DIR=data
 ORKESTRA_WORKSPACE_DIR=workspaces
+# Per-agent run timeout in seconds (default 1800 = 30 min)
+ORKESTRA_AGENT_TIMEOUT_SECONDS=1800
 ```
+
+> 💡 **Performance tip:** keep `ORKESTRA_WORKSPACE_DIR` **outside a cloud-synced folder** (e.g. OneDrive). Cloud sync makes Git operations on large workspaces noticeably slower.
 
 ---
 
@@ -185,6 +227,7 @@ To run CLI tools smoothly in headless mode without hitting visual confirmation l
 
 The Fastify server exposes a REST API at `127.0.0.1:8787`:
 
+**Core**
 - `GET /api/health` -> System and database status.
 - `GET /api/cli-status` -> Active CLI authentication info, dynamic models, and usage limits.
 - `POST /api/chat` -> Triggers Single/Multi/Debate chat prompts.
@@ -192,6 +235,24 @@ The Fastify server exposes a REST API at `127.0.0.1:8787`:
 - `GET /api/runs/:id/events` -> SSE stream of run steps, logs, and files.
 - `POST /api/runs/:id/note` -> Enqueues user notes/instructions for active runs.
 - `POST /api/runs/:id/stop` -> Immediately cancels the active runner process.
+
+**Projects & files**
+- `POST /api/projects/create` · `POST /api/projects/open` · `POST /api/projects/rename` -> Create, open a local folder, or rename a project.
+- `GET /api/files` · `POST /api/open-folder` · `POST /api/open-in-vscode` -> Explore files, reveal in OS file manager, open in VS Code.
+
+**Diff & review**
+- `GET /api/git/diff/:runId` -> A single run's working-tree diff.
+- `POST /api/git/diff` -> The project's **cumulative** diff across all turns (excludes heavy dirs).
+- `POST /api/git/changes` -> Fast change count (drives the review bar's visibility).
+
+**GitHub (no `gh` CLI)**
+- `GET /api/github/status` · `POST /api/github/connect` · `POST /api/github/disconnect` -> Connection state & PAT connect.
+- `POST /api/github/device/start` · `POST /api/github/device/poll` -> OAuth Device Flow.
+- `POST /api/github/repo` · `POST /api/github/push` · `POST /api/github/clone` · `POST /api/github/remote` -> Create repo, push, clone, read linked origin.
+- `POST /api/git/pr` -> Open a pull request via the REST API.
+
+**Live preview**
+- `GET /api/preview/info/:runId` · `POST /api/preview/start` · `GET /api/preview/status` · `POST /api/preview/stop` -> Detect, run, and control the in-app dev-server preview.
 
 ---
 
@@ -201,18 +262,31 @@ The Fastify server exposes a REST API at `127.0.0.1:8787`:
 ├── apps/
 │   ├── server/             # Fastify Backend
 │   │   └── src/
-│   │       ├── index.ts    # Fastify server & REST endpoints
-│   │       ├── cli.ts      # Spawn controllers & STDIN piping
+│   │       ├── index.ts    # Fastify server & REST endpoints (chat, runs, git, github, preview)
+│   │       ├── cli.ts      # CLI detection, chat/plan/debate, STDIN piping
 │   │       ├── usage.ts    # Anthropic/OpenAI quota web-scrapers & cache
 │   │       ├── runner.ts   # Dependency graphs & parallel task execution
-│   │       └── git.ts      # Git Publisher & file security review
-│   └── web/                # React + Vite Glassmorphism Frontend
+│   │       ├── git.ts      # Embedded Git (dugite): diff, baseline, clone, push
+│   │       ├── github.ts   # GitHub REST + OAuth Device Flow + encrypted token store
+│   │       ├── preview.ts  # Live dev-server preview manager
+│   │       ├── events.ts   # SSE event hub
+│   │       └── db.ts       # better-sqlite3 (WAL) store
+│   └── web/                # React + Vite Glassmorphism Frontend (single-page studio)
 ├── packages/
 │   └── shared/             # Shared TypeScript types
 ├── docs/                   # Visual assets and screenshots
-├── data/                   # SQLite database (WAL) & uploads
-└── workspaces/             # Persistent workspace directories
+├── data/                   # SQLite database (WAL), uploads & encrypted tokens
+└── workspaces/             # Persistent, per-project Git workspaces
 ```
+
+---
+
+## 🔒 Privacy & Security
+
+- **Local-first:** everything runs on `127.0.0.1`; your code and conversations never leave your machine.
+- **No model keys handled by Orkestra:** it drives the CLIs you have already installed and authenticated — it never asks for Anthropic/OpenAI/Google API keys.
+- **GitHub tokens** are stored **encrypted with Windows DPAPI** (never in plain text) and are **never persisted into any repo's `.git/config`**; agent pushes authenticate via an ephemeral header held only in process memory.
+- **Secret hygiene:** secret-looking files (`.env`, `*token*`, `*secret*`, `*credential*`, private keys) are excluded from diffs and commits; heavy/generated folders (`node_modules`, `dist`, …) are ignored.
 
 ---
 
