@@ -1644,11 +1644,13 @@ function App() {
   }, [verifiedTools]);
 
   // Katılımcı eklemek için: her doğrulanmış CLI ve onun model seçenekleri.
-  const participantSources = verifiedTools.map((tool) => ({
-    cli: tool.id as DebateParticipant,
-    label: displayToolName(tool.id),
-    models: tool.modelOptions?.length ? tool.modelOptions : [{ id: "default", label: "default", limited: false }]
-  }));
+  const participantSources = useMemo(() => {
+    return verifiedTools.map((tool) => ({
+      cli: tool.id as DebateParticipant,
+      label: displayToolName(tool.id),
+      models: tool.modelOptions?.length ? tool.modelOptions : [{ id: "default", label: "default", limited: false }]
+    }));
+  }, [verifiedTools]);
 
   // If the selected single-agent CLI is no longer verified, switch to the first valid one.
   useEffect(() => {
@@ -1680,12 +1682,13 @@ function App() {
     () => cliStatus?.tools.find((tool) => tool.id === singleCli),
     [cliStatus, singleCli]
   );
-  const modelOptions: ModelOption[] =
-    mode !== "single"
+  const modelOptions: ModelOption[] = useMemo(() => {
+    return mode !== "single"
       ? [{ id: "default", label: "default", limited: false }]
       : selectedTool?.modelOptions?.length
         ? selectedTool.modelOptions
         : [{ id: "default", label: "default", limited: false }];
+  }, [mode, selectedTool]);
 
   useEffect(() => {
     setSelectedModel("default");
