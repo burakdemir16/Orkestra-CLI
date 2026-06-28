@@ -2,7 +2,7 @@
 
 Thanks for your interest — contributions are very welcome! Issues, ideas, docs, and PRs all help.
 
-> **License note:** Orkestra is released under the **PolyForm Noncommercial License 1.0.0**. By contributing, you agree your contribution is provided under the same license. See [`LICENSE`](LICENSE).
+> **License note:** Orkestra is released under the **Apache License 2.0**. By contributing, you agree your contribution is provided under the same license. See [`LICENSE`](LICENSE).
 
 ## Getting started
 

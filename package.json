@@ -3,7 +3,7 @@
   "version": "0.2.8",
   "type": "module",
   "description": "Local-first AI agent studio that orchestrates Claude Code, OpenAI Codex and Antigravity/Gemini CLIs from one panel.",
-  "license": "PolyForm-Noncommercial-1.0.0",
+  "license": "Apache-2.0",
   "homepage": "https://github.com/burakdemir16/Orkestra-CLI#readme",
   "repository": {
     "type": "git",

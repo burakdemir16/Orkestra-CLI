@@ -1,7 +1,7 @@
 # 🎹 Orkestra
 
 [![npm version](https://img.shields.io/npm/v/orkestra-cli.svg)](https://www.npmjs.com/package/orkestra-cli)
-[![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-red.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D20.0.0-blue.svg)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178c6.svg)](https://www.typescriptlang.org/)
 [![Fastify](https://img.shields.io/badge/Fastify-v5-black.svg)](https://fastify.dev/)
@@ -328,4 +328,4 @@ Contributions are welcome — issues, ideas, and PRs. See [`CONTRIBUTING.md`](CO
 
 ## ⚖️ License
 
-Distributed under the **PolyForm Noncommercial License 1.0.0**. You may copy, modify, and distribute this software for **non-commercial** purposes only. See [`LICENSE`](LICENSE) for complete terms.
+Distributed under the **Apache License 2.0**. You may use, modify, and distribute this software — including for commercial purposes — provided you retain the license and notices. See [`LICENSE`](LICENSE) for complete terms.
