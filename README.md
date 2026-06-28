@@ -173,16 +173,23 @@ Install [Node.js](https://nodejs.org/) (v20 or higher). You do **not** need to i
 
 ### Install (recommended — one line)
 
-Install Orkestra globally straight from GitHub, then run it:
+Once published to npm:
+
+```bash
+npm install -g orkestra-cli
+orkestra
+```
+
+Or install straight from GitHub without waiting for a publish:
 
 ```bash
 npm install -g github:burakdemir16/Orkestra-CLI
 orkestra
 ```
 
-`orkestra` starts the local server (serving the built UI) and opens it in your browser at **http://127.0.0.1:8787**. Data and project workspaces are stored under `~/.orkestra`. The setup wizard then walks you through installing/authenticating the CLIs.
+The `orkestra` command starts the local server (serving the built UI) and opens it in your browser at **http://127.0.0.1:8787**. Data and project workspaces are stored under `~/.orkestra`. The setup wizard then walks you through installing/authenticating the CLIs.
 
-> To publish to the public npm registry as `orkestra` (so users can run `npm install -g orkestra`), remove `"private": true` from `package.json` and run `npm publish`.
+> **Publishing to npm** (maintainer): the bare name `orkestra` is already taken on npm, so the package is named **`orkestra-cli`** (the binary stays `orkestra`). To publish: `npm login` then `npm publish`. After that, anyone can run `npm install -g orkestra-cli`.
 
 ### Run from source (development)
 
