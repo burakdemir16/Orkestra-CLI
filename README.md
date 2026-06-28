@@ -320,6 +320,12 @@ The Fastify server exposes a REST API at `127.0.0.1:8787`:
 
 ---
 
+## 🤝 Contributing
+
+Contributions are welcome — issues, ideas, and PRs. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for setup, project layout, the PR checklist, and good first issues.
+
+---
+
 ## ⚖️ License
 
 Distributed under the **PolyForm Noncommercial License 1.0.0**. You may copy, modify, and distribute this software for **non-commercial** purposes only. See [`LICENSE`](LICENSE) for complete terms.
