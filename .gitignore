@@ -10,7 +10,7 @@ portfolio-test/
 _agy*/
 _agy*
 
-# Planning & Status Docs
+# Planning & Status Docs (internal — keep local, never publish)
 ORKESTRA_STATUS.md
 guncel-yapilan.md
 SON-YAPILANLAR.md
@@ -19,6 +19,11 @@ docs/kalan-isler.md
 docs/orkestra-chat-code-mimarisi.md
 orchestra-run.ps1
 DEVIR.md
+gelecek-planlar.md
+PLAN.md
+
+# Launch / marketing kit (internal — keep local, never publish)
+docs/launch/
 
 
 
