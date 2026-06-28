@@ -1,70 +1,68 @@
-import Database from "better-sqlite3";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Agent, AgentRole, AgentStatus, Run, RunEvent, RunEventType } from "../../../packages/shared/types";
+import type { Agent, AgentRole, AgentStatus, Run, RunEvent } from "../../../packages/shared/types";
 import type { AppConfig } from "./config";
 
-const json = {
-  parse<T>(value: string | null | undefined, fallback: T): T {
-    if (!value) return fallback;
-    try {
-      return JSON.parse(value) as T;
-    } catch {
-      return fallback;
-    }
-  },
-  stringify(value: unknown) {
-    return JSON.stringify(value);
-  }
-};
+// Derlemesiz, native-bağımlılıksız depo: veriyi bellekte tutar, tek JSON dosyasına yazar.
+// (Eski better-sqlite3 yerine — böylece her Node sürümünde, Python/build-tools olmadan kurulur.)
+// Public API better-sqlite3 sürümüyle birebir aynıdır; index.ts/runner.ts değişmez.
+
+interface DbShape {
+  agents: Agent[];
+  runs: Run[];
+  events: RunEvent[];
+  eventSeq: number;
+}
+
+const MAX_RUNS = 100; // dosyayı sınırlı tut: en yeni 100 run + olayları saklanır.
 
 export class Store {
-  private db: Database.Database;
+  private file: string;
+  private data: DbShape;
+  private saveTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(config: AppConfig) {
-    this.db = new Database(join(config.dataDir, "orkestra.sqlite"));
-    this.db.pragma("journal_mode = WAL");
-    this.migrate();
+    this.file = join(config.dataDir, "orkestra.json");
+    this.data = this.load();
     this.seedAgents();
     this.repairDefaultAgentRoles();
   }
 
-  private migrate() {
-    this.db.exec(`
-      create table if not exists agents (
-        id text primary key,
-        name text not null,
-        role text not null,
-        command text not null,
-        args_template text not null,
-        enabled integer not null,
-        timeout_seconds integer not null,
-        fallback_agent_ids text not null,
-        limit_patterns text not null,
-        status text not null,
-        last_limited_at text
-      );
+  private load(): DbShape {
+    if (existsSync(this.file)) {
+      try {
+        const raw = JSON.parse(readFileSync(this.file, "utf8")) as Partial<DbShape>;
+        return {
+          agents: raw.agents ?? [],
+          runs: raw.runs ?? [],
+          events: raw.events ?? [],
+          eventSeq: raw.eventSeq ?? 0
+        };
+      } catch {
+        /* bozuk dosya → sıfırdan başla */
+      }
+    }
+    return { agents: [], runs: [], events: [], eventSeq: 0 };
+  }
 
-      create table if not exists runs (
-        id text primary key,
-        prompt text not null,
-        status text not null,
-        workspace_path text not null,
-        created_at text not null,
-        completed_at text,
-        active_step text,
-        summary text
-      );
+  // Disk yazımını kısa süre topla (run sırasında çok sık olay → diski boğmamak için).
+  private persist() {
+    if (this.saveTimer) return;
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = null;
+      this.flush();
+    }, 150);
+  }
 
-      create table if not exists run_events (
-        id integer primary key autoincrement,
-        run_id text not null,
-        agent_id text,
-        type text not null,
-        message text not null,
-        raw_output text,
-        created_at text not null
-      );
-    `);
+  // Senkron, atomik yazım (çıkışta da çağrılabilir).
+  flush() {
+    try {
+      const tmp = `${this.file}.tmp`;
+      writeFileSync(tmp, JSON.stringify(this.data), "utf8");
+      renameSync(tmp, this.file);
+    } catch {
+      /* yoksay */
+    }
   }
 
   private seedAgents() {
@@ -145,182 +143,84 @@ export class Store {
   }
 
   listAgents(): Agent[] {
-    const rows = this.db.prepare("select * from agents order by role, name").all() as AgentRow[];
-    return rows.map(rowToAgent);
+    return [...this.data.agents].sort(
+      (a, b) => a.role.localeCompare(b.role) || a.name.localeCompare(b.name)
+    );
   }
 
   getAgent(id: string): Agent | undefined {
-    const row = this.db.prepare("select * from agents where id = ?").get(id) as AgentRow | undefined;
-    return row ? rowToAgent(row) : undefined;
+    const found = this.data.agents.find((a) => a.id === id);
+    return found ? { ...found } : undefined;
   }
 
   saveAgent(agent: Agent) {
-    this.db
-      .prepare(`
-        insert into agents (
-          id, name, role, command, args_template, enabled, timeout_seconds,
-          fallback_agent_ids, limit_patterns, status, last_limited_at
-        ) values (
-          @id, @name, @role, @command, @argsTemplate, @enabled, @timeoutSeconds,
-          @fallbackAgentIds, @limitPatterns, @status, @lastLimitedAt
-        )
-        on conflict(id) do update set
-          name = excluded.name,
-          role = excluded.role,
-          command = excluded.command,
-          args_template = excluded.args_template,
-          enabled = excluded.enabled,
-          timeout_seconds = excluded.timeout_seconds,
-          fallback_agent_ids = excluded.fallback_agent_ids,
-          limit_patterns = excluded.limit_patterns,
-          status = excluded.status,
-          last_limited_at = excluded.last_limited_at
-      `)
-      .run({
-        ...agent,
-        argsTemplate: json.stringify(agent.argsTemplate),
-        fallbackAgentIds: json.stringify(agent.fallbackAgentIds),
-        limitPatterns: json.stringify(agent.limitPatterns),
-        enabled: agent.enabled ? 1 : 0
-      });
+    const idx = this.data.agents.findIndex((a) => a.id === agent.id);
+    const clean: Agent = { ...agent };
+    if (idx >= 0) this.data.agents[idx] = clean;
+    else this.data.agents.push(clean);
+    this.persist();
   }
 
   deleteAgent(id: string) {
-    this.db.prepare("delete from agents where id = ?").run(id);
+    this.data.agents = this.data.agents.filter((a) => a.id !== id);
+    this.persist();
   }
 
   setAgentStatus(id: string, status: AgentStatus, lastLimitedAt?: string) {
-    this.db
-      .prepare("update agents set status = ?, last_limited_at = coalesce(?, last_limited_at) where id = ?")
-      .run(status, lastLimitedAt ?? null, id);
+    const agent = this.data.agents.find((a) => a.id === id);
+    if (!agent) return;
+    agent.status = status;
+    if (lastLimitedAt !== undefined) agent.lastLimitedAt = lastLimitedAt;
+    this.persist();
   }
 
   createRun(run: Run) {
-    this.db
-      .prepare(`
-        insert into runs (id, prompt, status, workspace_path, created_at, completed_at, active_step, summary)
-        values (@id, @prompt, @status, @workspacePath, @createdAt, @completedAt, @activeStep, @summary)
-      `)
-      .run(run);
+    this.data.runs.push({ ...run });
+    // Dosyayı sınırlı tut: en yeni MAX_RUNS run + ilgili olaylar kalsın.
+    if (this.data.runs.length > MAX_RUNS) {
+      this.data.runs.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+      const kept = this.data.runs.slice(0, MAX_RUNS);
+      const keptIds = new Set(kept.map((r) => r.id));
+      this.data.runs = kept;
+      this.data.events = this.data.events.filter((e) => keptIds.has(e.runId));
+    }
+    this.persist();
   }
 
   updateRun(id: string, patch: Partial<Run>) {
-    const current = this.getRun(id);
-    if (!current) return;
-    const next = { ...current, ...patch };
-    this.db
-      .prepare(`
-        update runs set status = @status, completed_at = @completedAt,
-        active_step = @activeStep, summary = @summary where id = @id
-      `)
-      .run(next);
+    const run = this.data.runs.find((r) => r.id === id);
+    if (!run) return;
+    Object.assign(run, patch);
+    this.persist();
   }
 
   listRuns(): Run[] {
-    const rows = this.db.prepare("select * from runs order by created_at desc limit 50").all() as RunRow[];
-    return rows.map(rowToRun);
+    return [...this.data.runs]
+      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+      .slice(0, 50)
+      .map((r) => ({ ...r }));
   }
 
   getRun(id: string): Run | undefined {
-    const row = this.db.prepare("select * from runs where id = ?").get(id) as RunRow | undefined;
-    return row ? rowToRun(row) : undefined;
+    const found = this.data.runs.find((r) => r.id === id);
+    return found ? { ...found } : undefined;
   }
 
   addEvent(event: Omit<RunEvent, "id">): RunEvent {
-    const result = this.db
-      .prepare(`
-        insert into run_events (run_id, agent_id, type, message, raw_output, created_at)
-        values (@runId, @agentId, @type, @message, @rawOutput, @createdAt)
-      `)
-      .run(event);
-
-    return { ...event, id: Number(result.lastInsertRowid) };
+    const full: RunEvent = { ...event, id: ++this.data.eventSeq };
+    this.data.events.push(full);
+    this.persist();
+    return { ...full };
   }
 
   listEvents(runId: string): RunEvent[] {
-    const rows = this.db
-      .prepare("select * from run_events where run_id = ? order by id asc")
-      .all(runId) as RunEventRow[];
-    return rows.map(rowToEvent);
+    return this.data.events
+      .filter((e) => e.runId === runId)
+      .sort((a, b) => a.id - b.id)
+      .map((e) => ({ ...e }));
   }
 }
 
 export function defaultLimitPatterns() {
   return ["rate limit", "usage limit", "quota", "try again later", "429", "login expired"];
-}
-
-interface AgentRow {
-  id: string;
-  name: string;
-  role: AgentRole;
-  command: string;
-  args_template: string;
-  enabled: number;
-  timeout_seconds: number;
-  fallback_agent_ids: string;
-  limit_patterns: string;
-  status: AgentStatus;
-  last_limited_at: string | null;
-}
-
-interface RunRow {
-  id: string;
-  prompt: string;
-  status: Run["status"];
-  workspace_path: string;
-  created_at: string;
-  completed_at: string | null;
-  active_step: string | null;
-  summary: string | null;
-}
-
-interface RunEventRow {
-  id: number;
-  run_id: string;
-  agent_id: string | null;
-  type: RunEventType;
-  message: string;
-  raw_output: string | null;
-  created_at: string;
-}
-
-function rowToAgent(row: AgentRow): Agent {
-  return {
-    id: row.id,
-    name: row.name,
-    role: row.role,
-    command: row.command,
-    argsTemplate: json.parse(row.args_template, []),
-    enabled: Boolean(row.enabled),
-    timeoutSeconds: row.timeout_seconds,
-    fallbackAgentIds: json.parse(row.fallback_agent_ids, []),
-    limitPatterns: json.parse(row.limit_patterns, defaultLimitPatterns()),
-    status: row.status,
-    lastLimitedAt: row.last_limited_at
-  };
-}
-
-function rowToRun(row: RunRow): Run {
-  return {
-    id: row.id,
-    prompt: row.prompt,
-    status: row.status,
-    workspacePath: row.workspace_path,
-    createdAt: row.created_at,
-    completedAt: row.completed_at,
-    activeStep: row.active_step,
-    summary: row.summary
-  };
-}
-
-function rowToEvent(row: RunEventRow): RunEvent {
-  return {
-    id: row.id,
-    runId: row.run_id,
-    agentId: row.agent_id,
-    type: row.type,
-    message: row.message,
-    rawOutput: row.raw_output,
-    createdAt: row.created_at
-  };
 }

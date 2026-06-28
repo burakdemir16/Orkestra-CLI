@@ -1,6 +1,6 @@
 {
   "name": "orkestra-cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "Local-first AI agent studio that orchestrates Claude Code, OpenAI Codex and Antigravity/Gemini CLIs from one panel.",
   "license": "PolyForm-Noncommercial-1.0.0",
@@ -57,22 +57,22 @@
     "@vitejs/plugin-react": "^6.0.2",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
-    "better-sqlite3": "^11.8.1",
     "concurrently": "^10.0.3",
     "dugite": "^3.2.2",
     "fastify": "^5.2.1",
     "html2pdf.js": "^0.14.0",
     "jspdf": "^4.2.1",
     "lucide-react": "^0.468.0",
-    "node-pty": "^1.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vite": "^8.0.16"
   },
+  "optionalDependencies": {
+    "node-pty": "^1.1.0"
+  },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.2",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2"

@@ -189,6 +189,8 @@ orkestra
 
 The `orkestra` command starts the local server (serving the built UI) and opens it in your browser at **http://127.0.0.1:8787**. Data and project workspaces are stored under `~/.orkestra`. The setup wizard then walks you through installing/authenticating the CLIs.
 
+> **No compiler needed.** Orkestra installs on any Node 20+ machine without Python or build tools — storage is a dependency-free JSON store and Git is bundled (`dugite`). The integrated terminal uses an optional native module (`node-pty`); if it can't be built on a given machine, the terminal is simply disabled and everything else works.
+
 > **Publishing to npm** (maintainer): the bare name `orkestra` is already taken on npm, so the package is named **`orkestra-cli`** (the binary stays `orkestra`). To publish: `npm login` then `npm publish`. After that, anyone can run `npm install -g orkestra-cli`.
 
 ### Run from source (development)

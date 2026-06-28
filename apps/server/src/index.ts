@@ -1,7 +1,17 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
-import * as pty from "node-pty";
+import { createRequire } from "node:module";
+import type { IPty } from "node-pty";
+// node-pty native bir modüldür ve bazı PC'lerde (derleyici/Python yoksa) kurulamayabilir.
+// OPSİYONEL: yüklenemezse entegre terminal devre dışı kalır, uygulamanın geri kalanı çalışır.
+const nodeRequire = createRequire(import.meta.url);
+let ptyMod: typeof import("node-pty") | null = null;
+try {
+  ptyMod = nodeRequire("node-pty");
+} catch {
+  ptyMod = null;
+}
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
@@ -65,7 +75,7 @@ type TerminalSession = {
   cwd: string;
   buffer: string;
   rawBuffer: string; // ANSI'li ham çıktı (xterm gömülü terminal için)
-  process: pty.IPty;
+  process: IPty;
   createdAt: string;
   updatedAt: string;
 };
@@ -274,8 +284,9 @@ function cliPtyEnv(): Record<string, string> {
 // Komutu YAKALANAN bir pty'de (gerçek pseudo-konsol) çalıştırır; çıktısı buffer'a yazılır.
 // agy'nin "irm | iex" kurulum scripti headless stdout'a yazamıyordu; pty bunu çözer.
 function spawnCapturedPty(name: string, command: string, rows = 30): string {
+  if (!ptyMod) throw new Error("Entegre terminal bu kurulumda kullanılamıyor (node-pty yüklü değil).");
   const id = randomUUID();
-  const proc = pty.spawn("powershell.exe", ["-NoLogo", "-Command", command], {
+  const proc = ptyMod.spawn("powershell.exe", ["-NoLogo", "-Command", command], {
     name: "xterm-color", cols: 120, rows, cwd: process.cwd(), env: cliPtyEnv()
   });
   const session: TerminalSession = {
@@ -1172,10 +1183,11 @@ app.post<{ Body: { shell?: TerminalShell; cwd?: string } }>("/api/terminals", as
   if (!isPathAllowed(cwd)) return reply.code(403).send({ error: "Forbidden cwd" });
   if (!existsSync(cwd) || !statSync(cwd).isDirectory()) return reply.code(400).send({ error: "Invalid cwd" });
 
+  if (!ptyMod) return reply.code(503).send({ error: "Entegre terminal bu kurulumda kullanılamıyor (node-pty yüklü değil)." });
   const executable = shell === "cmd" ? "cmd.exe" : "powershell.exe";
   const args = shell === "cmd" ? [] : ["-NoLogo"];
   const id = randomUUID();
-  const proc = pty.spawn(executable, args, {
+  const proc = ptyMod.spawn(executable, args, {
     name: "xterm-color",
     cols: 100,
     rows: 28,
@@ -1362,9 +1374,9 @@ app.get<{ Params: { runId: string; "*": string } }>("/preview/:runId/*", async (
   return reply.type(mime).send(content);
 });
 
-// Sunucu kapanırken vite dev süreçlerini de kapat.
+// Sunucu kapanırken vite dev süreçlerini kapat + bekleyen JSON yazımını diske işle.
 for (const sig of ["SIGINT", "SIGTERM", "exit"] as const) {
-  process.on(sig, () => previews.stopAll());
+  process.on(sig, () => { previews.stopAll(); store.flush(); });
 }
 
 await app.listen({ host: config.host, port: config.port });
