@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync,
 import { join, relative } from "node:path";
 import type { Agent, PlanTask, Run, RunEventType } from "../../../packages/shared/types";
 import { interpolateArgs } from "./template";
+import { GitService } from "./git";
 import type { Store } from "./db";
 import type { EventHub } from "./events";
 
@@ -52,6 +53,9 @@ type RunControl = {
 
 export class Runner {
   private controls = new Map<string, RunControl>();
+  // GitHub token'ı (yalnızca bellekte). Ajanın git push/clone/fetch'i için süreç ortamına
+  // GIT_CONFIG ile geçirilir → token diske YAZILMAZ. index.ts bağlan/kes'te günceller.
+  githubToken: string | null = null;
 
   constructor(
     private store: Store,
@@ -100,6 +104,7 @@ export class Runner {
     this.emit(run.id, "started", startMsg);
     try {
       mkdirSync(run.workspacePath, { recursive: true });
+      await GitService.ensureRepo(run.workspacePath); // proje kendi git deposu olsun (izolasyon)
       writeFileSync(join(run.workspacePath, "PROMPT.md"), run.prompt, "utf8");
       this.emit(run.id, "file_created", "PROMPT.md", null, JSON.stringify({ path: "PROMPT.md", adds: 0, dels: 0 }));
       await this.runPhasesFrom(run, tasks, new Map(), 0);
@@ -345,6 +350,7 @@ export class Runner {
 
     try {
       mkdirSync(run.workspacePath, { recursive: true });
+      await GitService.ensureRepo(run.workspacePath); // proje kendi git deposu olsun (izolasyon)
       writeFileSync(join(run.workspacePath, "PROMPT.md"), run.prompt, "utf8");
       this.emit(run.id, "file_created", "PROMPT.md", null, "PROMPT.md");
 
@@ -443,6 +449,14 @@ export class Runner {
       const npmDir = join(process.env.APPDATA ?? join(home, "AppData", "Roaming"), "npm");
       cleanEnv.PATH = [agyBin, npmDir, cleanEnv.PATH ?? cleanEnv.Path].filter(Boolean).join(";");
     }
+    // GitHub bağlıysa: ajanın `git push/clone/fetch`'i github.com'a kimlikli gitsin diye
+    // tek-seferlik HTTP header'ı GIT_CONFIG env ile geçir (token diske/.git/config'e yazılmaz).
+    if (this.githubToken) {
+      const basic = Buffer.from(`x-access-token:${this.githubToken}`, "utf8").toString("base64");
+      cleanEnv.GIT_CONFIG_COUNT = "1";
+      cleanEnv.GIT_CONFIG_KEY_0 = "http.https://github.com/.extraheader";
+      cleanEnv.GIT_CONFIG_VALUE_0 = `Authorization: Basic ${basic}`;
+    }
 
     return new Promise<string>((resolve, reject) => {
       mkdirSync(cwd, { recursive: true });
@@ -463,7 +477,11 @@ export class Runner {
         lastSnapshot = nextSnapshot;
       };
       const fileWatch = setInterval(reportFileChanges, 1000);
-      const promptText = opts?.promptText ?? buildAgentPrompt(run.prompt, agent, transcript, notes);
+      let promptText = opts?.promptText ?? buildAgentPrompt(run.prompt, agent, transcript, notes);
+      // GitHub bağlıysa ajana bildir: git push/pull/clone github.com'a kimlikli çalışır.
+      if (this.githubToken) {
+        promptText += "\n\n[GitHub bağlı: git push/pull/fetch/clone github.com için kimlik doğrulamalı. 'origin' ayarlıysa istendiğinde `git push` yapabilirsin.]";
+      }
       // Prompt'u argüman yerine stdin'den ver: Windows cmd.exe çok satırlı argümanı keser.
       // {prompt} placeholder'ı args'tan çıkarılır; metin stdin'e yazılır.
       const templateArgs = agent.argsTemplate.filter((arg) => arg.trim() !== "{prompt}");

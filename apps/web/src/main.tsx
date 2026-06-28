@@ -20,6 +20,8 @@ import {
   Folder,
   FolderOpen,
   GitBranch,
+  Github,
+  UploadCloud,
   Globe,
   History,
   ImagePlus,
@@ -509,6 +511,46 @@ const uiText = {
     newTerminalTitle: "New terminal",
     copyMessage: "Copy",
     copied: "Copied",
+    githubSection: "GitHub",
+    githubConnect: "Connect",
+    githubDisconnect: "Disconnect",
+    githubConnecting: "Connecting…",
+    githubTokenPlaceholder: "Paste a Personal Access Token (repo scope)",
+    githubConnectedAs: "Connected as",
+    githubTokenHint: "Create a token at github.com/settings/tokens (repo scope).",
+    githubCloneTitle: "Clone from GitHub",
+    githubCloneUrlPrompt: "GitHub repository URL",
+    githubCloneUrlPlaceholder: "https://github.com/owner/repo.git",
+    githubPush: "Push to GitHub",
+    githubRepoNamePrompt: "New repository name",
+    githubRepoPrivatePrompt: "Make it private?",
+    githubNotConnected: "Connect GitHub in Settings first.",
+    githubPushedTo: "Pushed to GitHub:",
+    githubClonedDone: "Repository cloned.",
+    githubInvalidToken: "Token invalid or insufficient scope.",
+    githubConnectWith: "Connect with GitHub",
+    githubDevicePrompt: "Enter this code in the browser:",
+    githubOpenBrowser: "Open browser",
+    githubWaiting: "Waiting for approval…",
+    githubCodeCopied: "Code copied — paste it on the page.",
+    githubClientIdSetup: "One-time setup: OAuth App Client ID",
+    githubClientIdPlaceholder: "OAuth App Client ID",
+    githubCreateAppHint: "Create an OAuth App (tick \"Enable Device Flow\") and paste its Client ID here. You only do this once; it is public, not a secret.",
+    githubCreateAppLink: "Create OAuth App",
+    githubSave: "Save",
+    githubAdvancedToken: "Connect with a token instead",
+    githubBackToDevice: "Back to one-click connect",
+    githubNoActiveProject: "Select a project first to push it.",
+    githubPushExisting: "Push to an existing repo (URL)",
+    githubPushExistingHint: "Paste an existing GitHub repo URL — Orkestra commits and pushes this project there.",
+    githubRepoUrlPlaceholder: "https://github.com/owner/repo",
+    githubCreateNew: "Create a new repo",
+    githubLinkedRepo: "Linked repo",
+    githubPushUpdate: "Push update",
+    githubChangeRepo: "Send to a different repo",
+    githubMenuItem: "GitHub",
+    attachMenuFile: "Upload photo or file",
+    reviewChanges: "Review changes (all turns)",
     noTerminal: "Open a PowerShell or cmd tab to start.",
     closeTerminal: "Close terminal",
     toggleTerminal: "Toggle terminal"
@@ -869,6 +911,46 @@ const uiText = {
     newTerminalTitle: "Yeni terminal",
     copyMessage: "Kopyala",
     copied: "Kopyalandı",
+    githubSection: "GitHub",
+    githubConnect: "Bağlan",
+    githubDisconnect: "Bağlantıyı kes",
+    githubConnecting: "Bağlanıyor…",
+    githubTokenPlaceholder: "Personal Access Token yapıştır (repo yetkisi)",
+    githubConnectedAs: "Bağlı:",
+    githubTokenHint: "github.com/settings/tokens adresinden 'repo' yetkili token oluştur.",
+    githubCloneTitle: "GitHub'dan klonla",
+    githubCloneUrlPrompt: "GitHub depo URL'si",
+    githubCloneUrlPlaceholder: "https://github.com/sahip/depo.git",
+    githubPush: "GitHub'a gönder",
+    githubRepoNamePrompt: "Yeni depo adı",
+    githubRepoPrivatePrompt: "Özel (private) olsun mu?",
+    githubNotConnected: "Önce Ayarlar'dan GitHub'a bağlan.",
+    githubPushedTo: "GitHub'a gönderildi:",
+    githubClonedDone: "Depo klonlandı.",
+    githubInvalidToken: "Token geçersiz veya yetkisi yetersiz.",
+    githubConnectWith: "GitHub ile Bağlan",
+    githubDevicePrompt: "Tarayıcıda bu kodu gir:",
+    githubOpenBrowser: "Tarayıcıda aç",
+    githubWaiting: "Onay bekleniyor…",
+    githubCodeCopied: "Kod kopyalandı — açılan sayfaya yapıştır.",
+    githubClientIdSetup: "Tek seferlik kurulum: OAuth App Client ID",
+    githubClientIdPlaceholder: "OAuth App Client ID",
+    githubCreateAppHint: "Bir OAuth App oluştur (\"Enable Device Flow\" işaretle) ve Client ID'sini buraya yapıştır. Bunu yalnızca bir kez yaparsın; gizli değil, herkese açık bir numaradır.",
+    githubCreateAppLink: "OAuth App oluştur",
+    githubSave: "Kaydet",
+    githubAdvancedToken: "Bunun yerine token ile bağlan",
+    githubBackToDevice: "Tek tıkla bağlanmaya dön",
+    githubNoActiveProject: "Göndermek için önce bir proje seç.",
+    githubPushExisting: "Var olan repoya gönder (URL)",
+    githubPushExistingHint: "Var olan bir GitHub repo URL'si yapıştır — Orkestra bu projeyi commit edip oraya push eder.",
+    githubRepoUrlPlaceholder: "https://github.com/sahip/depo",
+    githubCreateNew: "Yeni repo oluştur",
+    githubLinkedRepo: "Bağlı depo",
+    githubPushUpdate: "Güncellemeyi gönder",
+    githubChangeRepo: "Başka repoya gönder",
+    githubMenuItem: "GitHub",
+    attachMenuFile: "Fotoğraf veya dosya yükle",
+    reviewChanges: "Değişiklikleri incele (tüm turlar)",
     noTerminal: "Başlamak için PowerShell veya cmd sekmesi açın.",
     closeTerminal: "Terminali kapat",
     toggleTerminal: "Terminali aç/kapat"
@@ -1418,6 +1500,15 @@ function App() {
   const [setupDone, setSetupDone] = useState<boolean>(() => localStorage.getItem("orkestra.setupDone") === "1");
   // Ayarlar dialog'u açık mı?
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [githubOpen, setGithubOpen] = useState(false);
+  const [githubPushBusy, setGithubPushBusy] = useState(false);
+  // GitHub işlemleri için görünür geri bildirim (kısa süreli toast).
+  const [githubToast, setGithubToast] = useState<{ ok: boolean; text: string } | null>(null);
+  useEffect(() => {
+    if (!githubToast) return;
+    const t = setTimeout(() => setGithubToast(null), 5000);
+    return () => clearTimeout(t);
+  }, [githubToast]);
   const [loginModal, setLoginModal] = useState<{ tool: CliToolStatus } | null>(null);
   // Sol panel (sidebar) aç/kapa — ChatGPT tarzı; tercih localStorage'da saklanır.
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => localStorage.getItem("orkestra.sidebarCollapsed") === "1");
@@ -1456,6 +1547,23 @@ function App() {
   const [diffOpen, setDiffOpen] = useState(false);
   const [diffFiles, setDiffFiles] = useState<DiffFile[]>([]);
   const [diffLoading, setDiffLoading] = useState(false);
+  // Birikmiş değişiklik sayısı (tüm turlar) — İncele satırı yalnızca >0 ise görünür.
+  const [cumulativeChanges, setCumulativeChanges] = useState(0);
+  // Diff önbelleği: aynı (ws + değişiklik sayacı) için tekrar hesaplama → İncele anında açılır.
+  const diffCacheRef = useRef<{ key: string; files: DiffFile[] } | null>(null);
+  // Uçuştaki diff istekleri (ön-yükleme + İncele aynı anahtarı paylaşsın → çift hesaplama/yarış yok).
+  const diffInflightRef = useRef<Map<string, Promise<DiffFile[]>>>(new Map());
+  // Tek diff getirici: önbellek → uçuştaki istek → yeni istek. Sonucu önbelleğe yazar.
+  const fetchDiff = useCallback((ws: string, key: string): Promise<DiffFile[]> => {
+    if (diffCacheRef.current?.key === key) return Promise.resolve(diffCacheRef.current.files);
+    const existing = diffInflightRef.current.get(key);
+    if (existing) return existing;
+    const p = api.post<{ files: DiffFile[] }>("/api/git/diff", { workspacePath: ws })
+      .then((r) => { const files = r.files ?? []; diffCacheRef.current = { key, files }; return files; })
+      .finally(() => diffInflightRef.current.delete(key));
+    diffInflightRef.current.set(key, p);
+    return p;
+  }, []);
   // "İncele" diff'i hangi run için açacak: aktif run ya da geri yüklenen konuşmanın son run'ı.
   const [reviewRunId, setReviewRunId] = useState<string | null>(null);
   // Terminal kolon genişliği (yatay sürükleyerek değiştirilebilir).
@@ -1818,6 +1926,66 @@ function App() {
     }
   }
 
+  // GitHub deposunu klonla → proje olarak aç.
+  async function cloneGithubProject() {
+    const url = await askText({ title: text.githubCloneTitle, placeholder: text.githubCloneUrlPlaceholder, initial: "", confirmLabel: text.githubConnect });
+    if (url === null || !url.trim()) return;
+    try {
+      const res = await api.post<{ workspacePath?: string; name?: string }>("/api/github/clone", { url: url.trim() });
+      if (!res.workspacePath) return;
+      const proj: Project = { id: crypto.randomUUID(), name: res.name || "repo", workspacePath: res.workspacePath, createdAt: new Date().toISOString() };
+      setProjects((cur) => { const next = [proj, ...cur]; persistProjects(next); return next; });
+      setActiveProjectId(proj.id);
+      setProjectWorkspace(proj.workspacePath);
+      setActiveRun(null);
+      setEvents([]);
+      setCodeMessages([welcomeMessageFor(language)]);
+      setCodeConvoId(crypto.randomUUID());
+      setCodingActive(false);
+      setCodeDebateDone(false);
+      setLastAnalysis(null);
+      setPhasePending(null);
+      setNotice(text.githubClonedDone);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  // Projeyi yeni GitHub deposu olarak oluştur + push'la.
+  async function pushProjectToGithub(id: string) {
+    const proj = projects.find((p) => p.id === id);
+    if (!proj) return;
+    try {
+      const st = await api.get<{ connected: boolean }>("/api/github/status");
+      if (!st.connected) { setGithubToast({ ok: false, text: text.githubNotConnected }); return; }
+    } catch {
+      setGithubToast({ ok: false, text: text.githubNotConnected });
+      return;
+    }
+    const fail = (e: unknown) => {
+      let msg = e instanceof Error ? e.message : String(e);
+      try { msg = (JSON.parse(msg) as { error?: string }).error || msg; } catch { /* düz metin */ }
+      setGithubToast({ ok: false, text: msg });
+    };
+    // Proje zaten bir repoya bağlıysa (origin var) → tekrar sormadan direkt güncelle gönder.
+    let linked: string | null = null;
+    try {
+      const remote = await api.post<{ repo: string | null }>("/api/github/remote", { workspacePath: proj.workspacePath });
+      linked = remote.repo;
+    } catch (error) { fail(error); return; }
+    if (linked) {
+      setGithubToast({ ok: true, text: `${text.githubPushUpdate}: ${linked}…` });
+      try {
+        await api.post("/api/github/push", { workspacePath: proj.workspacePath });
+        setGithubToast({ ok: true, text: `${text.githubPushedTo} ${linked}` });
+      } catch (error) { fail(error); }
+      return;
+    }
+    // Bağlı değil → projeye geç + GitHub diyaloğunu aç (var olan repoya URL ile gönder VEYA yeni repo oluştur).
+    if (activeProjectId !== id) switchProject(id);
+    setGithubOpen(true);
+  }
+
   // Projeyi yeniden adlandır — GERÇEK klasör de yeniden adlandırılır (backend renameSync).
   async function renameProject(id: string) {
     const proj = projects.find((p) => p.id === id);
@@ -1853,25 +2021,49 @@ function App() {
   }, [activeRun?.id]);
 
   // Diff'i sunucudan çek (working-tree, dosya başına unified diff).
-  const loadDiff = useCallback(async (runId: string | null) => {
-    if (!runId) { setDiffFiles([]); return; }
+  // Diff her zaman PROJE workspace'inin TÜM turlarının birikmiş farkını gösterir (run'a bağlı değil).
+  // Önbellek: aynı (ws + değişiklik sayacı) için tekrar hesaplamaz → anında gösterir.
+  const loadDiff = useCallback(async (force = false) => {
+    const ws = activeRun?.workspacePath ?? projectWorkspace ?? null;
+    if (!ws) { setDiffFiles([]); return; }
+    const key = `${ws}@${workspaceFileEventCount}`;
+    if (force) { diffCacheRef.current = null; diffInflightRef.current.delete(key); }
+    else if (diffCacheRef.current?.key === key) { setDiffFiles(diffCacheRef.current.files); setDiffLoading(false); return; }
     setDiffLoading(true);
     try {
-      const res = await api.get<{ files: DiffFile[] }>(`/api/git/diff/${runId}`);
-      setDiffFiles(res.files ?? []);
+      setDiffFiles(await fetchDiff(ws, key));
     } catch {
       setDiffFiles([]);
     } finally {
       setDiffLoading(false);
     }
-  }, []);
+  }, [activeRun?.workspacePath, projectWorkspace, workspaceFileEventCount, fetchDiff]);
+
+  // Değişiklik sayısını güncel tut (HIZLI uç — diff toplamaz). Proje/run/dosya-olayı değişince.
+  // İş bitince (runActive false) tam diff'i ARKA PLANDA ön-yükle → İncele anında açılır.
+  useEffect(() => {
+    const ws = activeRun?.workspacePath ?? projectWorkspace ?? null;
+    if (!ws) { setCumulativeChanges(0); return; }
+    const running = activeRun?.status === "running" || activeRun?.status === "queued";
+    let cancelled = false;
+    void api.post<{ count: number }>("/api/git/changes", { workspacePath: ws })
+      .then((res) => {
+        if (cancelled) return;
+        setCumulativeChanges(res.count ?? 0);
+        // Aktif run yokken diff'i sıcak tut (kullanıcı İncele'ye basınca beklemesin).
+        if (!running && (res.count ?? 0) > 0) {
+          void fetchDiff(ws, `${ws}@${workspaceFileEventCount}`).catch(() => undefined);
+        }
+      })
+      .catch(() => { if (!cancelled) setCumulativeChanges(0); });
+    return () => { cancelled = true; };
+  }, [activeRun?.workspacePath, activeRun?.status, projectWorkspace, workspaceFileEventCount, fetchDiff]);
 
   // "İncele" → sağdaki diff panelini aç (terminal açıksa kapanır).
   function openDiff() {
-    const runId = reviewRunId ?? activeRun?.id ?? null;
     setTerminalOpen(false);
     setDiffOpen(true);
-    void loadDiff(runId);
+    void loadDiff();
   }
 
   function openConversation(id: string) {
@@ -3137,6 +3329,7 @@ function App() {
                   onChange={setChatInput}
                   attachments={attachments}
                   onAddImage={(file) => void addImage(file)}
+                  onOpenGithub={() => setGithubOpen(true)}
                   onRemoveImage={removeImage}
                   conversations={conversations}
                   activeConversationId={conversationId}
@@ -3182,6 +3375,8 @@ function App() {
                 onSwitch={switchProject}
                 onCreate={() => void createProject()}
                 onOpenExisting={() => void openExistingProject()}
+                onCloneGithub={() => void cloneGithubProject()}
+                onGithubPush={(id) => void pushProjectToGithub(id)}
                 onRename={(id) => void renameProject(id)}
                 onDelete={deleteProject}
                 onNewSession={newSessionInProject}
@@ -3260,6 +3455,7 @@ function App() {
                   onStopRun={() => void stopRun()}
                   attachments={attachments}
                   onAddImage={(file) => void addImage(file)}
+                  onOpenGithub={() => setGithubOpen(true)}
                   onRemoveImage={removeImage}
                   conversations={activeProjectId ? codeConvos.filter((c) => c.projectId === activeProjectId) : codeConvos.filter((c) => !c.projectId)}
                   activeConversationId={conversationId}
@@ -3275,6 +3471,7 @@ function App() {
                   events={events}
                   onOpenFile={(path) => void openFileInDialog(path)}
                   onReview={openDiff}
+                  cumulativeChanges={cumulativeChanges}
                   onTogglePreview={() => setShowPreview((current) => !current)}
                   previewOpen={showPreview}
                   previewAvailable={previewAvailable}
@@ -3291,8 +3488,10 @@ function App() {
                 onWidthChange={setTerminalWidth}
                 onResizeStart={() => setTerminalResizing(true)}
                 onResizeEnd={() => setTerminalResizing(false)}
-                onRefresh={() => void loadDiff(reviewRunId ?? activeRun?.id ?? null)}
+                onRefresh={() => void loadDiff(true)}
                 onOpenFile={(path) => void openFileInDialog(path)}
+                onGithubPush={activeProjectId ? () => { setGithubPushBusy(true); void pushProjectToGithub(activeProjectId).finally(() => setGithubPushBusy(false)); } : undefined}
+                githubBusy={githubPushBusy}
                 onClose={() => setDiffOpen(false)}
               />
             ) : (
@@ -3509,6 +3708,37 @@ function App() {
           onClose={() => setSettingsOpen(false)}
           onResetWizard={() => { localStorage.removeItem("orkestra.setupDone"); setSetupDone(false); setSettingsOpen(false); }}
         />
+      )}
+      {githubOpen && (
+        <GitHubDialog
+          language={language}
+          activeWorkspace={activeRun?.workspacePath ?? projectWorkspace ?? null}
+          activeName={projects.find((p) => p.id === activeProjectId)?.name}
+          onClose={() => setGithubOpen(false)}
+          onCloned={(workspacePath, name) => {
+            const existing = projects.find((p) => p.workspacePath === workspacePath);
+            if (existing) { switchProject(existing.id); return; }
+            const proj: Project = { id: crypto.randomUUID(), name, workspacePath, createdAt: new Date().toISOString() };
+            setProjects((cur) => { const next = [proj, ...cur]; persistProjects(next); return next; });
+            setActiveProjectId(proj.id);
+            setProjectWorkspace(proj.workspacePath);
+            setActiveRun(null);
+            setEvents([]);
+            setCodeMessages([welcomeMessageFor(language)]);
+            setCodeConvoId(crypto.randomUUID());
+            setCodingActive(false);
+            setCodeDebateDone(false);
+            setLastAnalysis(null);
+            setPhasePending(null);
+            setGithubToast({ ok: true, text: text.githubClonedDone });
+          }}
+        />
+      )}
+      {githubToast && (
+        <div className={`githubToast${githubToast.ok ? " ok" : " err"}`} onClick={() => setGithubToast(null)}>
+          {githubToast.ok ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}
+          <span>{githubToast.text}</span>
+        </div>
       )}
       {loginModal && (
         <LoginModal
@@ -3780,6 +4010,336 @@ function SetupWizard({
             <button className="primaryButton" disabled={!anyReady} onClick={onFinish}>{text.startApp}</button>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Composer "+" menüsü: Fotoğraf/dosya yükle + GitHub. (Sohbet ve kod modunda ortak.)
+function AttachMenu({ language, onPickFile, onOpenGithub }: { language: Language; onPickFile: () => void; onOpenGithub?: () => void }) {
+  const text = uiText[language];
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+  return (
+    <div className="attachWrap" onMouseDown={(e) => e.stopPropagation()}>
+      <button className="iconRound" onClick={() => setOpen((o) => !o)} title={text.addImage}><Plus size={16} /></button>
+      {open && (
+        <div className="rowMenu attachMenu">
+          <button onClick={() => { setOpen(false); onPickFile(); }}><FileIcon size={13} /> {text.attachMenuFile}</button>
+          {onOpenGithub && (
+            <button onClick={() => { setOpen(false); onOpenGithub(); }}><Github size={13} /> {text.githubMenuItem}</button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// GitHub diyaloğu (composer "+" menüsünden açılır): Device Flow ("Bağlan → tarayıcıda onayla")
+// öncelikli; bağlıyken bu projeyi gönder + repo klonla. PAT yapıştırma gelişmiş yedek.
+type GitHubState = { connected: boolean; login?: string; name?: string | null; error?: string };
+type DeviceInfo = { deviceCode: string; userCode: string; verificationUri: string; interval: number };
+function GitHubDialog({
+  language,
+  activeWorkspace,
+  activeName,
+  onClose,
+  onCloned
+}: {
+  language: Language;
+  activeWorkspace?: string | null;
+  activeName?: string;
+  onClose: () => void;
+  onCloned?: (workspacePath: string, name: string) => void;
+}) {
+  const text = uiText[language];
+  const [state, setState] = useState<GitHubState | null>(null);
+  const [clientId, setClientId] = useState<string | null>(null); // null = henüz bilinmiyor
+  const [cidInput, setCidInput] = useState("");
+  const [device, setDevice] = useState<DeviceInfo | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+  const [usePat, setUsePat] = useState(false);
+  const [token, setToken] = useState("");
+  const pollRef = useRef<number | null>(null);
+  // Bağlıyken: bu projeyi gönder + repo klonla.
+  const [repoName, setRepoName] = useState(activeName || "");
+  const [priv, setPriv] = useState(true);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushResult, setPushResult] = useState<string | null>(null);
+  const [pushUrl, setPushUrl] = useState("");
+  const [cloneUrl, setCloneUrl] = useState("");
+  const [cloneBusy, setCloneBusy] = useState(false);
+  // Projenin bağlı olduğu repo (origin). Varsa tekrar sormadan tek-tık güncelle gösterilir.
+  const [linkedRepo, setLinkedRepo] = useState<string | null>(null);
+  const [changeRepo, setChangeRepo] = useState(false);
+  const refreshLinked = async () => {
+    if (!activeWorkspace) { setLinkedRepo(null); return; }
+    try {
+      const r = await api.post<{ repo: string | null }>("/api/github/remote", { workspacePath: activeWorkspace });
+      setLinkedRepo(r.repo);
+    } catch { setLinkedRepo(null); }
+  };
+  useEffect(() => { if (state?.connected) void refreshLinked(); }, [state?.connected, activeWorkspace]);
+
+  const loadStatus = async () => {
+    try { setState(await api.get<GitHubState>("/api/github/status")); } catch { setState({ connected: false }); }
+  };
+  const loadClientId = async () => {
+    try { setClientId((await api.get<{ clientId: string }>("/api/github/clientid")).clientId || ""); } catch { setClientId(""); }
+  };
+  useEffect(() => { void loadStatus(); void loadClientId(); }, []);
+  // Poll interval'ini temizle.
+  useEffect(() => () => { if (pollRef.current) window.clearTimeout(pollRef.current); }, []);
+  const stopPolling = () => { if (pollRef.current) { window.clearTimeout(pollRef.current); pollRef.current = null; } };
+
+  const errMsg = (e: unknown, fallback?: string) => {
+    let msg = e instanceof Error ? e.message : String(e);
+    try { msg = (JSON.parse(msg) as { error?: string }).error || msg; } catch { /* düz metin */ }
+    return msg || fallback || "";
+  };
+
+  const saveClientId = async () => {
+    if (!cidInput.trim()) return;
+    setBusy(true); setErr(null);
+    try {
+      const r = await api.post<{ clientId: string }>("/api/github/clientid", { clientId: cidInput.trim() });
+      setClientId(r.clientId);
+      setCidInput("");
+    } catch (e) { setErr(errMsg(e)); } finally { setBusy(false); }
+  };
+
+  // Device Flow: kod al → tarayıcıyı aç → onaylanana kadar yokla.
+  const startDevice = async () => {
+    setBusy(true); setErr(null); setInfo(null);
+    try {
+      const d = await api.post<DeviceInfo>("/api/github/device/start", {});
+      setDevice(d);
+      // Kullanışlılık: kodu panoya kopyala + onay sayfasını aç.
+      try { await navigator.clipboard.writeText(d.userCode); setInfo(text.githubCodeCopied); } catch { /* yoksay */ }
+      window.open(d.verificationUri, "_blank", "noopener");
+      stopPolling();
+      // Kendi kendini zamanlayan yoklama: slow_down gelirse aralığı +5sn artır (yoksa GitHub
+      // token yerine sürekli slow_down döndürür ve onay hiç görünmez). Başlangıçta tampon +1sn.
+      let delay = (Math.max(5, d.interval) + 1) * 1000;
+      const schedule = () => { pollRef.current = window.setTimeout(() => void tick(), delay); };
+      const tick = async () => {
+        try {
+          const r = await api.post<GitHubState & { pending?: boolean; slowDown?: boolean; error?: string }>("/api/github/device/poll", { deviceCode: d.deviceCode });
+          if (r.connected) { stopPolling(); setDevice(null); setInfo(null); setState(r); return; }
+          if (r.error) { stopPolling(); setDevice(null); setErr(r.error); return; }
+          if (r.slowDown) delay += 5000;
+          schedule();
+        } catch (e) { stopPolling(); setDevice(null); setErr(errMsg(e)); }
+      };
+      schedule();
+    } catch (e) {
+      setErr(errMsg(e));
+    } finally { setBusy(false); }
+  };
+
+  const connectPat = async () => {
+    if (!token.trim()) return;
+    setBusy(true); setErr(null);
+    try {
+      const res = await api.post<GitHubState>("/api/github/connect", { token: token.trim() });
+      setState(res); setToken("");
+    } catch (e) { setErr(errMsg(e, text.githubInvalidToken)); } finally { setBusy(false); }
+  };
+
+  const disconnect = async () => {
+    setBusy(true);
+    try { await api.post("/api/github/disconnect", {}); setState({ connected: false }); setPushResult(null); } finally { setBusy(false); }
+  };
+
+  // Bu projeyi yeni GitHub deposu olarak oluştur + push.
+  const push = async () => {
+    if (!activeWorkspace || !repoName.trim()) return;
+    setPushBusy(true); setErr(null); setPushResult(null);
+    try {
+      const r = await api.post<{ htmlUrl: string; fullName: string }>("/api/github/repo", { workspacePath: activeWorkspace, name: repoName.trim(), private: priv });
+      setPushResult(r.fullName);
+      setChangeRepo(false);
+      void refreshLinked();
+    } catch (e) { setErr(errMsg(e)); } finally { setPushBusy(false); }
+  };
+
+  // Var olan bir repoya (URL) gönder — "link ver → push et" deterministik akışı.
+  const pushToExisting = async () => {
+    if (!activeWorkspace || !pushUrl.trim()) return;
+    setPushBusy(true); setErr(null); setPushResult(null);
+    try {
+      const r = await api.post<{ ok: boolean; repo?: string }>("/api/github/push", { workspacePath: activeWorkspace, remoteUrl: pushUrl.trim() });
+      setPushResult(r.repo || pushUrl.trim());
+      setPushUrl("");
+      setChangeRepo(false);
+      void refreshLinked();
+    } catch (e) { setErr(errMsg(e)); } finally { setPushBusy(false); }
+  };
+
+  // Zaten bağlı repoya tek-tık güncelleme push'u (URL/ad sormadan).
+  const pushUpdate = async () => {
+    if (!activeWorkspace) return;
+    setPushBusy(true); setErr(null); setPushResult(null);
+    try {
+      await api.post<{ ok: boolean }>("/api/github/push", { workspacePath: activeWorkspace });
+      setPushResult(linkedRepo || "");
+    } catch (e) { setErr(errMsg(e)); } finally { setPushBusy(false); }
+  };
+
+  // GitHub deposunu klonla → proje olarak ekle (parent).
+  const doClone = async () => {
+    if (!cloneUrl.trim()) return;
+    setCloneBusy(true); setErr(null);
+    try {
+      const r = await api.post<{ workspacePath?: string; name?: string }>("/api/github/clone", { url: cloneUrl.trim() });
+      if (r.workspacePath) { onCloned?.(r.workspacePath, r.name || "repo"); onClose(); }
+    } catch (e) { setErr(errMsg(e)); } finally { setCloneBusy(false); }
+  };
+
+  const body = (
+    <>
+      {state?.connected ? (
+        <>
+          <div className="githubConnectedRow">
+            <span className="wizardBadge ok"><CheckCircle2 size={13} /> {text.githubConnectedAs} <strong>{state.login}</strong></span>
+            <button className="ghostButton danger" disabled={busy} onClick={() => void disconnect()}>
+              <LogOut size={13} /> {text.githubDisconnect}
+            </button>
+          </div>
+          {activeWorkspace ? (
+            linkedRepo && !changeRepo ? (
+              // Proje zaten bir repoya bağlı → tekrar sormadan tek-tık güncelle.
+              <div className="githubActionBlock">
+                <p className="githubHint"><strong><Github size={13} /> {text.githubLinkedRepo}:</strong> <strong>{linkedRepo}</strong></p>
+                <div className="githubConnectForm">
+                  <button className="ghostButton" disabled={pushBusy} onClick={() => void pushUpdate()}>
+                    <UploadCloud size={14} /> {pushBusy ? text.githubConnecting : text.githubPushUpdate}
+                  </button>
+                  <button className="githubLinkBtn" onClick={() => { setChangeRepo(true); setErr(null); }}>{text.githubChangeRepo}</button>
+                </div>
+                {pushResult && <p className="githubHint">{text.githubPushedTo} <strong>{pushResult || linkedRepo}</strong></p>}
+              </div>
+            ) : (
+              <>
+                <div className="githubActionBlock">
+                  <p className="githubHint"><strong><UploadCloud size={13} /> {text.githubPushExisting}</strong></p>
+                  <div className="githubConnectForm">
+                    <input className="githubTokenInput" placeholder={text.githubRepoUrlPlaceholder} value={pushUrl} onChange={(e) => setPushUrl(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void pushToExisting(); }} />
+                    <button className="ghostButton" disabled={pushBusy || !pushUrl.trim()} onClick={() => void pushToExisting()}>
+                      <UploadCloud size={14} /> {pushBusy ? text.githubConnecting : text.githubPush}
+                    </button>
+                    <p className="githubHint">{text.githubPushExistingHint}</p>
+                  </div>
+                </div>
+                <div className="githubActionBlock">
+                  <p className="githubHint"><strong><Github size={13} /> {text.githubCreateNew}</strong></p>
+                  <div className="githubConnectForm">
+                    <input className="githubTokenInput" placeholder={text.githubRepoNamePrompt} value={repoName} onChange={(e) => setRepoName(e.target.value)} />
+                    <label className="githubCheck"><input type="checkbox" checked={priv} onChange={(e) => setPriv(e.target.checked)} /> {text.githubRepoPrivatePrompt}</label>
+                    <button className="ghostButton" disabled={pushBusy || !repoName.trim()} onClick={() => void push()}>
+                      <UploadCloud size={14} /> {pushBusy ? text.githubConnecting : text.githubPush}
+                    </button>
+                  </div>
+                </div>
+                {linkedRepo && <button className="githubLinkBtn" onClick={() => { setChangeRepo(false); setErr(null); }}>← {text.githubLinkedRepo}: {linkedRepo}</button>}
+                {pushResult && <p className="githubHint">{text.githubPushedTo} <strong>{pushResult}</strong></p>}
+              </>
+            )
+          ) : (
+            <div className="githubActionBlock"><p className="githubHint">{text.githubNoActiveProject}</p></div>
+          )}
+          <div className="githubActionBlock">
+            <p className="githubHint"><strong><Github size={13} /> {text.githubCloneTitle}</strong></p>
+            <div className="githubConnectForm">
+              <input className="githubTokenInput" placeholder={text.githubCloneUrlPlaceholder} value={cloneUrl} onChange={(e) => setCloneUrl(e.target.value)} />
+              <button className="ghostButton" disabled={cloneBusy || !cloneUrl.trim()} onClick={() => void doClone()}>
+                <Github size={14} /> {cloneBusy ? text.githubConnecting : text.githubCloneTitle}
+              </button>
+            </div>
+          </div>
+          {err && <p className="githubError">{err}</p>}
+        </>
+      ) : device ? (
+        // Device Flow aktif: kodu göster + tarayıcıyı tekrar açma + onay bekle.
+        <div className="githubDeviceBox">
+          <p className="githubHint">{text.githubDevicePrompt}</p>
+          <div className="githubUserCode">{device.userCode}</div>
+          <div className="githubConnectForm">
+            <button className="ghostButton" onClick={() => window.open(device.verificationUri, "_blank", "noopener")}>
+              <ExternalLink size={13} /> {text.githubOpenBrowser}
+            </button>
+            <span className="githubWaiting"><span className="liveSpinner" /> {text.githubWaiting}</span>
+          </div>
+          {info && <p className="githubHint">{info}</p>}
+          {err && <p className="githubError">{err}</p>}
+        </div>
+      ) : usePat ? (
+        // Gelişmiş: token ile bağlan (yedek).
+        <div className="githubConnectForm">
+          <input
+            type="password"
+            className="githubTokenInput"
+            placeholder={text.githubTokenPlaceholder}
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") void connectPat(); }}
+          />
+          <button className="ghostButton" disabled={busy || !token.trim()} onClick={() => void connectPat()}>
+            {busy ? text.githubConnecting : text.githubConnect}
+          </button>
+          <p className="githubHint">{text.githubTokenHint}</p>
+          <button className="githubLinkBtn" onClick={() => { setUsePat(false); setErr(null); }}>{text.githubBackToDevice}</button>
+          {err && <p className="githubError">{err}</p>}
+        </div>
+      ) : clientId ? (
+        // Client ID hazır → tek tık bağlan.
+        <div className="githubConnectForm">
+          <button className="primaryButton" disabled={busy} onClick={() => void startDevice()}>
+            <Github size={14} /> {busy ? text.githubConnecting : text.githubConnectWith}
+          </button>
+          <button className="githubLinkBtn" onClick={() => { setUsePat(true); setErr(null); }}>{text.githubAdvancedToken}</button>
+          {err && <p className="githubError">{err}</p>}
+        </div>
+      ) : clientId === "" ? (
+        // Tek seferlik kurulum: Client ID gir.
+        <div className="githubConnectForm">
+          <p className="githubHint"><strong>{text.githubClientIdSetup}</strong></p>
+          <input
+            className="githubTokenInput"
+            placeholder={text.githubClientIdPlaceholder}
+            value={cidInput}
+            onChange={(e) => setCidInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") void saveClientId(); }}
+          />
+          <button className="ghostButton" disabled={busy || !cidInput.trim()} onClick={() => void saveClientId()}>{text.githubSave}</button>
+          <p className="githubHint">{text.githubCreateAppHint}</p>
+          <button className="githubLinkBtn" onClick={() => window.open("https://github.com/settings/applications/new", "_blank", "noopener")}>
+            <ExternalLink size={12} /> {text.githubCreateAppLink}
+          </button>
+          <button className="githubLinkBtn" onClick={() => { setUsePat(true); setErr(null); }}>{text.githubAdvancedToken}</button>
+          {err && <p className="githubError">{err}</p>}
+        </div>
+      ) : (
+        <p className="githubHint">…</p>
+      )}
+    </>
+  );
+
+  return (
+    <div className="settingsOverlay" onMouseDown={onClose}>
+      <div className="settingsDialog glassPanel githubModal" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="settingsHeader">
+          <div className="panelTitle"><Github size={18} /><span>{text.githubSection}</span></div>
+          <button className="iconButton" onClick={onClose} title={text.close}><X size={16} /></button>
+        </div>
+        <div className="settingsBody">{body}</div>
       </div>
     </div>
   );
@@ -4133,6 +4693,7 @@ function ChatPanel({
   onChange,
   attachments,
   onAddImage,
+  onOpenGithub,
   onRemoveImage,
   conversations,
   activeConversationId,
@@ -4174,6 +4735,7 @@ function ChatPanel({
   onChange: (value: string) => void;
   attachments: { path: string; name: string; preview: string; isImage: boolean }[];
   onAddImage: (file: File) => void;
+  onOpenGithub?: () => void;
   onRemoveImage: (path: string) => void;
   conversations: StoredConversation[];
   activeConversationId: string;
@@ -4428,9 +4990,7 @@ function ChatPanel({
             />
             <div className="composerBar">
               <div className="composerBarLeft">
-                <button className="iconRound" onClick={() => fileInputRef.current?.click()} title={text.addImage}>
-                  <Plus size={18} />
-                </button>
+                <AttachMenu language={language} onPickFile={() => fileInputRef.current?.click()} onOpenGithub={onOpenGithub} />
                 {mode === "single" && (
                   <ModelPicker
                     language={language}
@@ -4900,6 +5460,8 @@ function ProjectPanel({
   onSwitch,
   onCreate,
   onOpenExisting,
+  onCloneGithub,
+  onGithubPush,
   onRename,
   onDelete,
   onNewSession,
@@ -4914,6 +5476,8 @@ function ProjectPanel({
   onSwitch: (id: string) => void;
   onCreate: () => void;
   onOpenExisting?: () => void;
+  onCloneGithub?: () => void;
+  onGithubPush?: (id: string) => void;
   onRename: (id: string) => void;
   onDelete: (id: string) => void;
   onNewSession: (projectId: string) => void;
@@ -4975,6 +5539,11 @@ function ProjectPanel({
                   <FolderOpen size={13} /> {text.openExistingShort}
                 </button>
               )}
+              {onCloneGithub && (
+                <button onClick={() => { setNewMenu(false); onCloneGithub(); }}>
+                  <Github size={13} /> {text.githubCloneTitle}
+                </button>
+              )}
             </div>
           )}
         </span>
@@ -5012,6 +5581,11 @@ function ProjectPanel({
                       <button onClick={() => { setMenuFor(null); onRename(p.id); }}>
                         <Pencil size={13} /> {text.renameProject}
                       </button>
+                      {onGithubPush && (
+                        <button onClick={() => { setMenuFor(null); onGithubPush(p.id); }}>
+                          <UploadCloud size={13} /> {text.githubPush}
+                        </button>
+                      )}
                       <button className="danger" onClick={() => { setMenuFor(null); if (confirm(text.deleteProjectConfirm)) onDelete(p.id); }}>
                         <Trash2 size={13} /> {text.deleteProject}
                       </button>
@@ -6609,6 +7183,8 @@ function DiffPanel({
   onResizeEnd,
   onRefresh,
   onOpenFile,
+  onGithubPush,
+  githubBusy,
   onClose
 }: {
   language: Language;
@@ -6620,6 +7196,8 @@ function DiffPanel({
   onResizeEnd: () => void;
   onRefresh: () => void;
   onOpenFile?: (path: string) => void;
+  onGithubPush?: () => void;
+  githubBusy?: boolean;
   onClose: () => void;
 }) {
   const text = uiText[language];
@@ -6664,6 +7242,11 @@ function DiffPanel({
           )}
         </div>
         <div className="diffPanelActions">
+          {onGithubPush && (
+            <button className="ghostButton diffGithubBtn" onClick={onGithubPush} disabled={githubBusy} title={text.githubPush}>
+              {githubBusy ? <span className="liveSpinner" /> : <UploadCloud size={14} />} {text.githubPush}
+            </button>
+          )}
           <button className="iconButton" onClick={onRefresh} title={text.refresh}><RefreshCw size={14} /></button>
           <button className="iconButton" onClick={onClose} title={text.close}><X size={15} /></button>
         </div>
@@ -6906,10 +7489,10 @@ function CodeChatPanel({
   participantSources, participants, onParticipantsChange, debateRounds, onRoundsChange,
   operatorSel, onOperatorChange, analysisReady,
   runActive, onAddNote, onStopRun,
-  attachments, onAddImage, onRemoveImage,
+  attachments, onAddImage, onOpenGithub, onRemoveImage,
   conversations, activeConversationId, onOpenConversation, onDeleteConversation, onNewChat,
   projects, activeProjectId, onSwitchProject, onNewProject, onDeleteProject,
-  run, events, onOpenFile, onReview, onTogglePreview, previewOpen, previewAvailable
+  run, events, onOpenFile, onReview, cumulativeChanges = 0, onTogglePreview, previewOpen, previewAvailable
 }: {
   language: Language;
   status: CliStatusResponse | null;
@@ -6958,6 +7541,7 @@ function CodeChatPanel({
   onStopRun: () => void;
   attachments: { path: string; name: string; preview: string; isImage: boolean }[];
   onAddImage: (file: File) => void;
+  onOpenGithub?: () => void;
   onRemoveImage: (path: string) => void;
   conversations: StoredConversation[];
   activeConversationId: string;
@@ -6973,6 +7557,7 @@ function CodeChatPanel({
   events: RunEvent[];
   onOpenFile?: (path: string) => void;
   onReview?: () => void;
+  cumulativeChanges?: number;
   onTogglePreview: () => void;
   previewOpen: boolean;
   previewAvailable: boolean;
@@ -7150,12 +7735,18 @@ function CodeChatPanel({
             </div>
           )
         )}
-        {/* Run bittiğinde tek özet + İncele (diff paneli). */}
-        {!runActive && fileTotals.count > 0 && (
+        {/* İncele: değişiklik oldukça (run sırasında her fazda da) en altta görünür — Claude Code gibi. */}
+        {onReview && (fileTotals.count > 0 || cumulativeChanges > 0) && (
           <button className="activityReviewLine" onClick={() => onReview?.()}>
             <Diamond size={13} />
-            <span>{fileTotals.count} {text.fileEditedNoun}</span>
-            <span className="activityDiff"><span className="diffAdd">+{fileTotals.adds}</span> <span className="diffDel">-{fileTotals.dels}</span></span>
+            {fileTotals.count > 0 ? (
+              <>
+                <span>{fileTotals.count} {text.fileEditedNoun}</span>
+                <span className="activityDiff"><span className="diffAdd">+{fileTotals.adds}</span> <span className="diffDel">-{fileTotals.dels}</span></span>
+              </>
+            ) : (
+              <span>{cumulativeChanges} {text.fileEditedNoun}</span>
+            )}
             <span className="activityReviewBtn">{text.review}</span>
           </button>
         )}
@@ -7327,9 +7918,7 @@ function CodeChatPanel({
               />
               <div className="composerBar">
                 <div className="composerBarLeft">
-                  <button className="iconRound" onClick={() => fileInputRef.current?.click()} title={text.addImage}>
-                    <Plus size={16} />
-                  </button>
+                  <AttachMenu language={language} onPickFile={() => fileInputRef.current?.click()} onOpenGithub={onOpenGithub} />
                   {mode === "single" && (
                     <ModelPicker
                       language={language}

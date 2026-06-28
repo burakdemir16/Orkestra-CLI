@@ -10,6 +10,7 @@ import { Store, defaultLimitPatterns } from "./db";
 import { EventHub } from "./events";
 import { Runner } from "./runner";
 import { GitService } from "./git";
+import { GitHubStore, getUser, createRepo, createPr, parseGitHubRemote, deviceStart, devicePoll } from "./github";
 import { PreviewManager, detectProjectType } from "./preview";
 import {
   analyzeDebate,
@@ -32,6 +33,9 @@ const store = new Store(config);
 const hub = new EventHub();
 const runner = new Runner(store, hub);
 const git = new GitService(process.cwd());
+const githubStore = new GitHubStore(config.dataDir);
+// Ajan git push/clone'u için token'ı bellekte runner'a ver (diske yazmadan).
+void githubStore.getToken().then((t) => { runner.githubToken = t; });
 const previews = new PreviewManager();
 
 const app = Fastify({ logger: true, bodyLimit: 25 * 1024 * 1024 });
@@ -590,6 +594,8 @@ app.post<{ Body: { name?: string } }>("/api/projects/create", async (request, re
   let i = 2;
   while (existsSync(dir)) dir = join(config.workspaceDir, `${base}-${i++}`);
   mkdirSync(dir, { recursive: true });
+  // Projeyi kendi git deposu yap → Orkestra'nın deposuna karışmaz (ajan da doğru depoyu görür).
+  await GitService.ensureRepo(resolve(dir));
   return { workspacePath: resolve(dir), name: name || base };
 });
 
@@ -861,6 +867,27 @@ app.get<{ Params: { runId: string } }>("/api/git/diff/:runId", async (request, r
   return { files };
 });
 
+// HIZLI: workspace'te değişiklik var mı / kaç tane (İncele barı görünürlüğü için; diff toplamaz).
+app.post<{ Body: { workspacePath?: string } }>("/api/git/changes", async (request) => {
+  const wp = request.body.workspacePath?.trim();
+  if (!wp) return { count: 0 };
+  const resolved = resolve(wp);
+  if (!underWorkspaceOrOpened(resolved) || !existsSync(resolved)) return { count: 0 };
+  const count = await new GitService(resolved).changedCount();
+  return { count };
+});
+
+// Bir PROJE workspace'inin TÜM turlarının birikmiş diff'i (run'a bağlı değil; her zaman erişilir).
+app.post<{ Body: { workspacePath?: string } }>("/api/git/diff", async (request, reply) => {
+  const wp = request.body.workspacePath?.trim();
+  if (!wp) return reply.code(400).send({ error: "workspacePath gerekli." });
+  const resolved = resolve(wp);
+  if (!underWorkspaceOrOpened(resolved)) return reply.code(403).send({ error: "Forbidden" });
+  if (!existsSync(resolved)) return reply.code(404).send({ error: "Workspace not found" });
+  const files = await new GitService(resolved).workspaceDiff();
+  return { files };
+});
+
 app.post<{ Body: { branch: string } }>("/api/git/branch", async (request) => {
   await git.createBranch(request.body.branch);
   return { ok: true };
@@ -876,10 +903,192 @@ app.post<{ Body: { branch: string } }>("/api/git/push", async (request) => {
   return { ok: true };
 });
 
-app.post<{ Body: { title: string; body: string } }>("/api/git/pr", async (request) => {
-  const output = await git.createDraftPr(request.body.title, request.body.body);
-  return { ok: true, output };
+// ----- GitHub API (gh CLI'siz; REST + gömülü git + DPAPI token) -----
+
+// Bağlantı durumu: token var mı, geçerli mi, kullanıcı kim.
+app.get("/api/github/status", async () => {
+  const token = await githubStore.getToken();
+  if (!token) return { connected: false };
+  try {
+    const user = await getUser(token);
+    return { connected: true, ...user };
+  } catch (error) {
+    return { connected: false, error: error instanceof Error ? error.message : String(error) };
+  }
 });
+
+// PAT ile bağlan: token doğrulanır, DPAPI ile şifreli saklanır. (Kullanıcı kendi token'ını girer.)
+app.post<{ Body: { token?: string } }>("/api/github/connect", async (request, reply) => {
+  const token = request.body.token?.trim();
+  if (!token) return reply.code(400).send({ error: "Token gerekli." });
+  try {
+    const user = await getUser(token); // geçersizse fırlatır
+    await githubStore.setToken(token);
+    runner.githubToken = token;
+    return { connected: true, ...user };
+  } catch (error) {
+    return reply.code(401).send({ error: error instanceof Error ? error.message : "Token geçersiz." });
+  }
+});
+
+app.post("/api/github/disconnect", async () => {
+  githubStore.clear();
+  runner.githubToken = null;
+  return { connected: false };
+});
+
+// OAuth App Client ID (public) — durum + ayarla. Device Flow için gerekli.
+app.get("/api/github/clientid", async () => ({ clientId: githubStore.getClientId() }));
+app.post<{ Body: { clientId?: string } }>("/api/github/clientid", async (request) => {
+  const id = request.body.clientId?.trim();
+  if (id) githubStore.setClientId(id);
+  return { clientId: githubStore.getClientId() };
+});
+
+// Device Flow başlat: kullanıcıya gösterilecek kod + onay URL'si.
+app.post("/api/github/device/start", async (_request, reply) => {
+  const clientId = githubStore.getClientId();
+  if (!clientId) return reply.code(400).send({ error: "Önce GitHub OAuth Client ID gerekli." });
+  try {
+    return await deviceStart(clientId);
+  } catch (error) {
+    return reply.code(500).send({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+// Device Flow yokla: onaylanınca token'ı sakla + kullanıcıyı döndür.
+app.post<{ Body: { deviceCode?: string } }>("/api/github/device/poll", async (request, reply) => {
+  const clientId = githubStore.getClientId();
+  const deviceCode = request.body.deviceCode?.trim();
+  if (!clientId || !deviceCode) return reply.code(400).send({ error: "clientId ve deviceCode gerekli." });
+  try {
+    const r = await devicePoll(clientId, deviceCode);
+    if (r.token) {
+      await githubStore.setToken(r.token);
+      runner.githubToken = r.token;
+      const user = await getUser(r.token);
+      return { connected: true, ...user };
+    }
+    return { pending: r.pending, slowDown: r.slowDown, error: r.error };
+  } catch (error) {
+    return reply.code(500).send({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+// Bir workspace'i yeni GitHub deposu olarak oluştur + push'la.
+app.post<{ Body: { workspacePath?: string; name?: string; private?: boolean; description?: string } }>(
+  "/api/github/repo",
+  async (request, reply) => {
+    const wp = request.body.workspacePath?.trim();
+    const name = request.body.name?.trim();
+    if (!wp || !name) return reply.code(400).send({ error: "workspacePath ve name gerekli." });
+    const resolved = resolve(wp);
+    if (!underWorkspaceOrOpened(resolved)) return reply.code(403).send({ error: "Forbidden" });
+    if (!existsSync(resolved)) return reply.code(404).send({ error: "Workspace bulunamadı." });
+    const token = await githubStore.getToken();
+    if (!token) return reply.code(401).send({ error: "Önce GitHub'a bağlan." });
+    try {
+      const svc = new GitService(resolved);
+      await svc.commitAll("orkestra: initial commit");
+      const repo = await createRepo(token, name, request.body.private ?? true, request.body.description);
+      const branch = await svc.currentBranch();
+      await svc.push(branch, { remoteUrl: repo.cloneUrl, token });
+      return { ok: true, htmlUrl: repo.htmlUrl, fullName: repo.fullName, defaultBranch: branch };
+    } catch (error) {
+      return reply.code(500).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+);
+
+// Mevcut workspace'i push'la. remoteUrl verilirse origin'i ona ayarlar (var olan repoya
+// "link ver → push et" deterministik akışı). Repo GitHub'da zaten var olmalı.
+app.post<{ Body: { workspacePath?: string; branch?: string; remoteUrl?: string } }>("/api/github/push", async (request, reply) => {
+  const wp = request.body.workspacePath?.trim();
+  if (!wp) return reply.code(400).send({ error: "workspacePath gerekli." });
+  const resolved = resolve(wp);
+  if (!underWorkspaceOrOpened(resolved)) return reply.code(403).send({ error: "Forbidden" });
+  const token = await githubStore.getToken();
+  if (!token) return reply.code(401).send({ error: "Önce GitHub'a bağlan." });
+  const remoteUrl = request.body.remoteUrl?.trim();
+  if (remoteUrl && !parseGitHubRemote(remoteUrl)) {
+    return reply.code(400).send({ error: "Geçerli bir GitHub repo URL'si değil." });
+  }
+  try {
+    await GitService.ensureRepo(resolved); // proje kendi deposu olsun (izolasyon)
+    const svc = new GitService(resolved);
+    await svc.commitAll("orkestra: update");
+    const branch = request.body.branch?.trim() || (await svc.currentBranch());
+    await svc.push(branch, { token, remoteUrl: remoteUrl || undefined });
+    return { ok: true, branch, repo: remoteUrl ? parseGitHubRemote(remoteUrl)?.repo : undefined };
+  } catch (error) {
+    return reply.code(500).send({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+// Bir workspace'in bağlı olduğu GitHub deposu (origin). Bağlıysa istemci tekrar sormaz.
+app.post<{ Body: { workspacePath?: string } }>("/api/github/remote", async (request) => {
+  const wp = request.body.workspacePath?.trim();
+  if (!wp) return { url: "", repo: null as string | null };
+  const resolved = resolve(wp);
+  if (!underWorkspaceOrOpened(resolved) || !existsSync(resolved)) return { url: "", repo: null as string | null };
+  const url = await new GitService(resolved).remoteUrl();
+  const parsed = url ? parseGitHubRemote(url) : null;
+  return { url, repo: parsed ? `${parsed.owner}/${parsed.repo}` : null };
+});
+
+// Bir GitHub deposunu klonla → proje olarak aç (opened root kaydet).
+app.post<{ Body: { url?: string; name?: string } }>("/api/github/clone", async (request, reply) => {
+  const url = request.body.url?.trim();
+  if (!url) return reply.code(400).send({ error: "Repo URL'si gerekli." });
+  const token = await githubStore.getToken();
+  const parsed = parseGitHubRemote(url);
+  const base = slug(request.body.name?.trim() || parsed?.repo || "repo");
+  let target = join(config.workspaceDir, base);
+  let i = 2;
+  while (existsSync(target)) target = join(config.workspaceDir, `${base}-${i++}`);
+  try {
+    await GitService.clone(url, target, token ?? undefined);
+    const resolved = resolve(target);
+    openedRoots.add(resolved);
+    saveOpenedRoots();
+    const name = parsed?.repo || base;
+    return { ok: true, workspacePath: resolved, name };
+  } catch (error) {
+    return reply.code(500).send({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+// Pull request aç (REST). workspace'in origin'inden owner/repo türetir, mevcut branch'i push'lar.
+app.post<{ Body: { workspacePath?: string; title?: string; body?: string; base?: string; draft?: boolean } }>(
+  "/api/git/pr",
+  async (request, reply) => {
+    const wp = request.body.workspacePath?.trim();
+    const title = request.body.title?.trim();
+    if (!wp || !title) return reply.code(400).send({ error: "workspacePath ve title gerekli." });
+    const resolved = resolve(wp);
+    if (!underWorkspaceOrOpened(resolved)) return reply.code(403).send({ error: "Forbidden" });
+    const token = await githubStore.getToken();
+    if (!token) return reply.code(401).send({ error: "Önce GitHub'a bağlan." });
+    try {
+      const svc = new GitService(resolved);
+      const originUrl = await svc.remoteUrl();
+      const parsed = originUrl ? parseGitHubRemote(originUrl) : null;
+      if (!parsed) return reply.code(400).send({ error: "Bu workspace'in GitHub origin'i yok (önce depo oluştur/push)." });
+      const branch = await svc.currentBranch();
+      await svc.push(branch, { token });
+      const pr = await createPr(token, parsed.owner, parsed.repo, {
+        title,
+        head: branch,
+        base: request.body.base?.trim() || "main",
+        body: request.body.body,
+        draft: request.body.draft ?? false
+      });
+      return { ok: true, htmlUrl: pr.htmlUrl, number: pr.number };
+    } catch (error) {
+      return reply.code(500).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+);
 
 // ----- File Explorer API -----
 const ignoredDirs = new Set(["node_modules", ".git", "dist", ".next", ".cache", "__pycache__", ".turbo"]);
