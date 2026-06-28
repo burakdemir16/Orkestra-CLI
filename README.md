@@ -13,7 +13,7 @@
 
 Instead of paying for third-party API proxies or direct token costs, Orkestra runs as a secure local daemon. It drives your existing CLI sessions directly on your loopback address (`127.0.0.1`), pipes their stdout/stderr stream in real-time, extracts files, tracks live usage limits, and coordinates them as a collaborative software engineering department.
 
-Around that orchestration core, Orkestra ships a full builder's cockpit: a **live diff reviewer**, an **in-app browser preview** (auto-detects React/Vite and static sites), an **integrated terminal** (PowerShell/cmd), a **file explorer**, **document export** (Markdown/PDF/Word/Excel) in Chat mode, desktop **notifications**, and **native GitHub integration** — connect via OAuth Device Flow and create/push/clone repos with an **embedded Git** that works even on machines without Git installed.
+Around that orchestration core, Orkestra ships a full **IDE-like cockpit**: a **file explorer** with **open-in-VS-Code**, a **live diff/file reviewer**, an **integrated terminal** (PowerShell/cmd), an **in-app browser preview** (auto-detects React/Vite and static sites), **voice input** (microphone dictation), **live usage/limit tracking** per CLI, desktop **notifications**, **document export** (Markdown/PDF/Word/Excel) in Chat mode, and **native GitHub integration** — connect via OAuth Device Flow and create/push/clone repos with an **embedded Git** that works even on machines without Git installed.
 
 ---
 
@@ -121,16 +121,19 @@ Orkestra talks to GitHub **without depending on the `gh` CLI**, so publishing wo
 
 ## 🛠️ Workspace Tooling
 
-Beyond orchestration, Orkestra is a complete builder's cockpit:
+Orkestra isn't just a chat box — it's a full **IDE-like cockpit** in the browser:
 
-- **🔍 Live Diff Review** — a Claude-Code-style review bar appears at the bottom on every change (during every phase, not just at the end). Open the side panel to inspect per-file unified diffs. The diff is **cumulative across all turns** (computed against the project's first baseline), heavy/generated folders (`node_modules`, `dist`, `build`, …) are excluded, and results are cached + pre-warmed so the panel opens instantly.
-- **🌐 In-App Browser Preview** — auto-detects React/Vite and static projects, runs the dev server, and renders the result in an embedded preview so you can see the app without leaving Orkestra.
-- **💻 Integrated Terminal** — PowerShell / cmd tabs powered by `node-pty` + `@xterm/xterm`, side-by-side with your work.
-- **🗂️ File Explorer** — browse the active project (or any folder you open from your PC), open files in a built-in viewer with **Copy** and **Open in VS Code** actions.
-- **📄 Document Export (Chat mode)** — turn a conversation's output into **Markdown, PDF, Word, Excel, or TXT** with preview cards, then download — no coding required.
-- **🔁 Chat → Code bridge** — promote a planning conversation into a structured Code Task Brief and jump straight into the coding stage, carrying the agreed plan and operator analysis with you.
-- **📂 Open existing / clone** — add any local folder as a project, or clone a GitHub repo, in addition to creating fresh workspaces.
+- **🗂️ File explorer** — browse the active project's tree (or any local folder you open). Click a file to read it in a built-in viewer with **Copy** and **Open in VS Code** buttons.
+- **🔍 File / diff review** — a Claude-Code-style review bar appears at the bottom on **every change, every phase** (not just at the end). Open the side panel for per-file unified diffs — **cumulative across all turns**, heavy/generated folders (`node_modules`, `dist`, …) excluded, cached + pre-warmed so it opens instantly.
+- **💻 Integrated terminal** — real PowerShell / cmd tabs (`node-pty` + `@xterm/xterm`) right next to your work.
+- **🌐 In-app browser preview** — auto-detects React/Vite and static projects, runs the dev server, and renders the live app inside Orkestra.
+- **🧩 Open in VS Code** — jump from any file or the whole project straight into VS Code.
+- **🎙️ Voice input** — dictate prompts with your microphone (speech-to-text) instead of typing.
+- **📊 Live usage / limit tracking** — see each CLI's 5-hour and weekly quota usage in real time, so you know how much headroom you have before switching.
 - **🔔 Desktop notifications** — get pinged when an answer finishes, a phase awaits approval, coding completes, or an error occurs (Service-Worker based, with action buttons).
+- **📄 Document export (Chat mode)** — turn a conversation's output into **Markdown, PDF, Word, Excel, or TXT** with preview cards, then download — no coding required.
+- **🔁 Chat → Code bridge** — promote a planning conversation into a structured Code Task Brief and jump straight into the coding stage, carrying the plan and operator analysis with you.
+- **📂 Open existing / clone** — add any local folder as a project, or clone a GitHub repo, in addition to creating fresh workspaces.
 
 ---
 
