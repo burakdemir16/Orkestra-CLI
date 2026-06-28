@@ -1728,10 +1728,33 @@ function App() {
     setCliStatus(nextCli);
   }
 
+  // Aktif kod oturumu id'sini sakla → yenilemede aynı oturum geri açılır.
+  useEffect(() => {
+    if (codeConvoId) localStorage.setItem("orkestra.codeConvoId", codeConvoId);
+  }, [codeConvoId]);
+
   useEffect(() => {
     void refresh();
     setChatConvos(loadConversations(CHAT_CONVERSATIONS_KEY));
-    setCodeConvos(loadConversations(CODE_CONVERSATIONS_KEY));
+    const code = loadConversations(CODE_CONVERSATIONS_KEY);
+    setCodeConvos(code);
+    // Sayfa yenilenince oturum kaybolmasın: kayıtlı kod oturumunu (yoksa aktif projenin
+    // en güncelini) geri aç + son run'a yeniden bağlan.
+    const savedConvoId = localStorage.getItem("orkestra.codeConvoId");
+    const savedPid = localStorage.getItem("orkestra.activeProjectId");
+    const sorted = [...code].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+    const restore =
+      sorted.find((c) => c.id === savedConvoId && c.messages.some((m) => m.role === "user")) ??
+      (savedPid ? sorted.find((c) => c.projectId === savedPid) : undefined);
+    if (restore) {
+      setCodeMessages(restore.messages.length ? restore.messages : [welcomeMessageFor(language)]);
+      setCodeConvoId(restore.id);
+      setCodingActive(Boolean(restore.codingActive));
+      setReviewRunId(restore.lastRunId ?? null);
+      if (restore.workspacePath) setProjectWorkspace(restore.workspacePath);
+      if (restore.projectId) setActiveProjectId(restore.projectId);
+      if (restore.lastRunId) void reconnectRun(restore.lastRunId);
+    }
   }, []);
 
   useEffect(() => {
@@ -2684,7 +2707,7 @@ function App() {
     });
     setActiveRun(run);
     setProjectWorkspace(run.workspacePath);
-    ensureProject(run.workspacePath, deriveTitle(messages));
+    ensureProject(run.workspacePath, deriveTitle(codeMessages));
     setEvents([]);
     setSuggestedPrompt(null);
     await refresh();
@@ -2728,7 +2751,7 @@ function App() {
         });
         setActiveRun(run);
         setProjectWorkspace(run.workspacePath);
-        ensureProject(run.workspacePath, deriveTitle(messages));
+        ensureProject(run.workspacePath, deriveTitle(codeMessages));
         setEvents([]);
         setSuggestedPrompt(null);
         setCodeDebateDone(false);
@@ -2771,7 +2794,7 @@ function App() {
     });
     setActiveRun(run);
     setProjectWorkspace(run.workspacePath);
-    ensureProject(run.workspacePath, deriveTitle(messages));
+    ensureProject(run.workspacePath, deriveTitle(codeMessages));
     setEvents([]);
     setSuggestedPrompt(null);
     setCodeDebateDone(false);
@@ -2872,7 +2895,7 @@ function App() {
     });
     setActiveRun(run);
     setProjectWorkspace(run.workspacePath);
-    ensureProject(run.workspacePath, deriveTitle(messages));
+    ensureProject(run.workspacePath, deriveTitle(codeMessages));
     setEvents([]);
     setSuggestedPrompt(null);
     setCodeDebateDone(false);
