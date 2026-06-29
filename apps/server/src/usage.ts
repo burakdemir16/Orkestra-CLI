@@ -84,10 +84,10 @@ async function fetchClaudeUsage(): Promise<CliUsage | undefined> {
   if (!data) return undefined;
   const windows: UsageWindow[] = [];
   if (data.five_hour) {
-    windows.push({ label: "5 saat", usedPercent: pct(data.five_hour.utilization), resetsAt: data.five_hour.resets_at });
+    windows.push({ label: "5h", usedPercent: pct(data.five_hour.utilization), resetsAt: data.five_hour.resets_at });
   }
   if (data.seven_day) {
-    windows.push({ label: "Haftalık", usedPercent: pct(data.seven_day.utilization), resetsAt: data.seven_day.resets_at });
+    windows.push({ label: "weekly", usedPercent: pct(data.seven_day.utilization), resetsAt: data.seven_day.resets_at });
   }
   return makeUsage(windows);
 }
@@ -107,14 +107,14 @@ async function fetchCodexUsage(): Promise<CliUsage | undefined> {
   const windows: UsageWindow[] = [];
   if (rate.primary_window) {
     windows.push({
-      label: "5 saat",
+      label: "5h",
       usedPercent: pct(rate.primary_window.used_percent),
       resetsAt: unixToIso(rate.primary_window.reset_at)
     });
   }
   if (rate.secondary_window) {
     windows.push({
-      label: "Haftalık",
+      label: "weekly",
       usedPercent: pct(rate.secondary_window.used_percent),
       resetsAt: unixToIso(rate.secondary_window.reset_at)
     });

@@ -174,6 +174,8 @@ const uiText = {
     agentCenter: "Limit Management",
     cliSection: "CLIs",
     limitsTitle: "Limits",
+    fiveHour: "5 hours",
+    weekly: "Weekly",
     collapseSidebar: "Collapse sidebar",
     expandSidebar: "Expand sidebar",
     refresh: "Refresh",
@@ -574,6 +576,8 @@ const uiText = {
     agentCenter: "Limit Yönetimi",
     cliSection: "CLI'lar",
     limitsTitle: "Limitler",
+    fiveHour: "5 saat",
+    weekly: "Haftalık",
     collapseSidebar: "Paneli kapat",
     expandSidebar: "Paneli aç",
     refresh: "Yenile",
@@ -958,6 +962,17 @@ const uiText = {
     toggleTerminal: "Terminali aç/kapat"
   }
 } as const;
+
+// ponytail: locale-aware helpers for usage labels and percentage formatting
+function usageLabel(key: string, lang: Language): string {
+  const t = uiText[lang];
+  return key === "5h" ? t.fiveHour : key === "weekly" ? t.weekly : key;
+}
+
+function fmtPct(n: number, lang: Language): string {
+  // tr: %50, en: 50%
+  return lang === "tr" ? `%${n}` : `${n}%`;
+}
 
 function welcomeMessageFor(language: Language): ChatMessage {
   return {
@@ -4469,7 +4484,7 @@ function SettingsDialog({
                   {t.usage?.windows?.length ? (
                     t.usage.windows.map((w) => (
                       <div className="limitMini" key={w.label}>
-                        <div className="limitMiniHead"><span>{w.label}</span><span>%{w.usedPercent}</span></div>
+                        <div className="limitMiniHead"><span>{usageLabel(w.label, language)}</span><span>{fmtPct(w.usedPercent, language)}</span></div>
                         <div className="limitMiniTrack">
                           <div
                             className={`limitMiniFill${w.usedPercent >= 90 ? " danger" : w.usedPercent >= 60 ? " warn" : ""}`}
@@ -6186,8 +6201,8 @@ function UsageBars({ usage, language }: { usage?: CliToolStatus["usage"]; langua
       {usage.windows.map((window) => (
         <div className="usageBar" key={window.label}>
           <div className="usageBarHead">
-            <span>{window.label}</span>
-            <span className={window.usedPercent >= 100 ? "usagePctFull" : ""}>%{window.usedPercent}</span>
+            <span>{usageLabel(window.label, language)}</span>
+            <span className={window.usedPercent >= 100 ? "usagePctFull" : ""}>{fmtPct(window.usedPercent, language)}</span>
           </div>
           <div className="usageTrack">
             <div
@@ -6229,7 +6244,7 @@ function LimitGauge({ status, language }: { status: CliStatusResponse | null; la
 
   return (
     <div className="limitGauge" ref={ref}>
-      <button className="limitGaugeBtn" onClick={() => setOpen((o) => !o)} title={`${text.agentCenter}: %${avg}`}>
+      <button className="limitGaugeBtn" onClick={() => setOpen((o) => !o)} title={`${text.agentCenter}: ${fmtPct(avg, language)}`}>
         <svg width="26" height="26" viewBox="0 0 24 24">
           <circle cx="12" cy="12" r={radius} fill="none" stroke="rgba(148,163,184,0.22)" strokeWidth="3" />
           <circle
@@ -6244,7 +6259,7 @@ function LimitGauge({ status, language }: { status: CliStatusResponse | null; la
           <div className="limitPopupHead">
             <Zap size={13} />
             <span>{text.agentCenter}</span>
-            <strong style={{ color }}>%{avg}</strong>
+            <strong style={{ color }}>{fmtPct(avg, language)}</strong>
           </div>
           {tools.length === 0 && <p className="limitPopupEmpty">{text.readingCli}</p>}
           {tools.map((t) => (
@@ -6255,7 +6270,7 @@ function LimitGauge({ status, language }: { status: CliStatusResponse | null; la
               </div>
               {t.usage!.windows.map((w) => (
                 <div className="limitMini" key={w.label}>
-                  <div className="limitMiniHead"><span>{w.label}</span><span>%{w.usedPercent}</span></div>
+                  <div className="limitMiniHead"><span>{usageLabel(w.label, language)}</span><span>{fmtPct(w.usedPercent, language)}</span></div>
                   <div className="limitMiniTrack">
                     <div
                       className={`limitMiniFill${w.usedPercent >= 90 ? " danger" : w.usedPercent >= 60 ? " warn" : ""}`}
