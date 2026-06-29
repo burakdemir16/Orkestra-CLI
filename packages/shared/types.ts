@@ -17,7 +17,8 @@ export type RunEventType =
   | "file_deleted"
   | "limit_detected"
   | "fallback_used"
-  | "phase_done";
+  | "phase_done"
+  | "phase_pending_review";
 
 export interface Agent {
   id: string;
@@ -42,6 +43,16 @@ export interface Run {
   completedAt?: string | null;
   activeStep?: string | null;
   summary?: string | null;
+  /**
+   * When true, agents run in a per-phase git worktree. The user reviews the
+   * diff before changes are applied to the workspace. Defaults to false.
+   */
+  preWriteApproval?: boolean;
+  /**
+   * When the run is paused for pre-write review, the index of the phase
+   * whose changes are pending (null when none).
+   */
+  pendingPhase?: number | null;
 }
 
 export interface RunEvent {
@@ -90,6 +101,7 @@ export interface CreateRunRequest {
   prompt: string;
   workspacePath?: string; // verilirse aynı proje workspace'inde devam edilir (sürekli geliştirme)
   tasks?: PlanTask[]; // verilirse ekip modu (orkestratör); yoksa doğrusal pipeline
+  preWriteApproval?: boolean; // agents run in a staging worktree; user reviews diff before apply
 }
 
 export interface BriefRequest {
