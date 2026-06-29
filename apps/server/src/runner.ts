@@ -827,6 +827,24 @@ function spawnCommand(
 // doğrudan çalıştırılabilen geçici (ad-hoc) ajan üretir. Model verilmişse flag olarak geçer.
 // Prompt stdin'den verildiği için argsTemplate'e {prompt} koymaya gerek yok.
 function adHocAgent(cli: string, model: string | undefined, role: string): Agent | undefined {
+  // API sağlayıcı katılımcısı ("api:<id>"/"api-<id>") → komutu api: olan bir ajan;
+  // runApiAgent bunu env veya UI store'dan çözüp HTTP ile çalıştırır.
+  if (cli.startsWith("api:") || cli.startsWith("api-")) {
+    const apiId = cli.startsWith("api:") ? cli.slice(4) : cli.replace(/^api-/, "");
+    return {
+      id: `adhoc-api-${apiId}`,
+      name: `API · ${model && model !== "default" ? model : apiId}`,
+      role: (role as Agent["role"]) ?? "builder",
+      command: `api:${apiId}`,
+      argsTemplate: [],
+      enabled: true,
+      timeoutSeconds: AGENT_TIMEOUT_SECONDS,
+      fallbackAgentIds: [],
+      limitPatterns: ["rate limit", "quota", "429", "insufficient_quota", "billing"],
+      status: "available",
+      lastLimitedAt: null
+    };
+  }
   const m = model && model !== "default" ? model : undefined;
   let command = "";
   let argsTemplate: string[] = [];

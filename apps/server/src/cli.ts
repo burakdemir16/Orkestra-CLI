@@ -5,16 +5,36 @@ import { tmpdir } from "node:os";
 import type { ChatMessage, CliToolStatus, EffortLevel } from "../../../packages/shared/types";
 import { getModelOptions, getUsageFor } from "./usage";
 import { ensureAgyTrusted } from "./runner";
+import { getApiProviderConfig, runApiProvider, type ApiProviderConfig } from "./apiProviders";
 
 const plannerTimeoutMs = 60_000;
 const claudeTimeoutMs = 60_000;
 const statusTimeoutMs = 6_000;
 const loggedOutOverrides = new Set<PlannerId>();
 
-export type PlannerId = "claude" | "codex" | "antigravity";
+// "claude" | "codex" | "antigravity" bilinen CLI'lar; ek olarak UI/.env'den gelen API
+// sağlayıcı id'leri ("api:<id>") da bir planlayıcı/katılımcı olabilir. (string & {}) hilesi
+// adların otomatik tamamlanmasını korur ama herhangi bir string'e de izin verir.
+export type PlannerId = "claude" | "codex" | "antigravity" | (string & {});
 export type PlannerSelection = PlannerId | "auto" | "all";
 // Paralel/Tartisma katilimcisi: ayni CLI'den farkli modeller ayri katilimci olabilir.
 export type Participant = { cli: PlannerId; model?: string };
+
+// ── API sağlayıcı katılımcı desteği (chat/debate/operatör/plan) ──
+// index.ts bunu ApiProviderStore'a bağlar → UI'dan eklenen sağlayıcılar burada da çözülür.
+let storedApiResolver: ((id: string) => Promise<ApiProviderConfig | undefined>) | null = null;
+export function setApiProviderResolver(fn: (id: string) => Promise<ApiProviderConfig | undefined>) {
+  storedApiResolver = fn;
+}
+export function isApiProviderId(id: string): boolean {
+  return id.startsWith("api:") || id.startsWith("api-");
+}
+async function resolveApiConfig(id: string, model?: string): Promise<ApiProviderConfig | undefined> {
+  let cfg = getApiProviderConfig(id);
+  if (!cfg && storedApiResolver) cfg = await storedApiResolver(id);
+  if (cfg && model && model !== "default") cfg = { ...cfg, model };
+  return cfg;
+}
 
 function participantLabel(cli: PlannerId, model?: string) {
   return model && model !== "default" ? `${modelLabel(cli)} · ${model}` : modelLabel(cli);
@@ -643,7 +663,13 @@ let claudeQueue: Promise<unknown> = Promise.resolve();
 
 // Bir planner'a HAZIR bir prompt gonderir. Sohbet akisi prompt'u buildPlannerPrompt/
 // buildClaudePrompt ile kurar; Tartisma modu ise kendi debate prompt'unu kurup buraya verir.
-function callPlannerRaw(id: PlannerId, prompt: string, model?: string, effort?: EffortLevel): Promise<string> {
+async function callPlannerRaw(id: PlannerId, prompt: string, model?: string, effort?: EffortLevel): Promise<string> {
+  // API sağlayıcı katılımcısı → CLI yerine HTTP ile çalıştır (OpenRouter/Ollama/OpenAI-uyumlu…).
+  if (isApiProviderId(id)) {
+    const config = await resolveApiConfig(id, model);
+    if (!config) throw new Error(`API sağlayıcı yapılandırılmamış: ${id}`);
+    return runApiProvider(config, prompt);
+  }
   if (id === "claude") {
     const run = claudeQueue.then(() => runClaude(prompt, model, effort), () => runClaude(prompt, model, effort));
     claudeQueue = run.then(() => undefined, () => undefined);
@@ -1070,6 +1096,12 @@ function buildFallbackAnalysis(message: string, turns: DebateTurn[], lang: "en" 
 }
 
 async function assertPlannerReady(id: PlannerId) {
+  // API sağlayıcı: CLI kurulum/oturum kontrolü yok — yapılandırılmışsa hazır say.
+  if (isApiProviderId(id)) {
+    const config = await resolveApiConfig(id);
+    if (!config) throw new Error("API sağlayıcı yapılandırılmamış.");
+    return;
+  }
   const status = await statusFor(id);
   if (!status.installed) throw new Error("CLI kurulu değil.");
   if (!status.authenticated) throw new Error("Giriş gerekli. Önce Login düğmesiyle oturum açın.");
@@ -1189,7 +1221,7 @@ async function getAntigravityStatus(): Promise<CliToolStatus> {
 function statusError(id: PlannerId, name: string, error: unknown): CliToolStatus {
   const message = normalizeCliError(id, error instanceof Error ? error.message : String(error), false);
   return {
-    id,
+    id: id as CliToolStatus["id"],
     name,
     installed: !/ENOENT|not recognized|bulunam/i.test(message),
     authenticated: !isAuthError(message),
@@ -1528,6 +1560,7 @@ function modelLabel(id: string) {
   if (id === "claude") return "Claude Code";
   if (id === "codex") return "OpenAI Codex";
   if (id === "antigravity") return "Antigravity CLI";
+  if (isApiProviderId(id)) return "API";
   return "Yerel fallback";
 }
 

@@ -142,14 +142,15 @@ export type EffortLevel = "low" | "medium" | "high";
 
 // Paralel/Tartisma katilimcisi: ayni CLI'den farkli modeller ayri katilimci olabilir.
 export interface ChatParticipant {
-  cli: "claude" | "codex" | "antigravity";
+  // CLI id'leri veya UI/.env API sağlayıcı id'si ("api:<id>")
+  cli: "claude" | "codex" | "antigravity" | (string & {});
   model?: string;
 }
 
 export interface ChatRequest {
   message: string;
   history: ChatMessage[];
-  planner?: "claude" | "codex" | "antigravity" | "auto" | "all";
+  planner?: "claude" | "codex" | "antigravity" | "auto" | "all" | (string & {});
   model?: string;
   effort?: EffortLevel;
   participants?: ChatParticipant[]; // "all" (paralel) modunda CLI+model katilimcilari

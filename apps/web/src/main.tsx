@@ -79,8 +79,9 @@ import type {
 } from "../../../packages/shared/types";
 import "./styles.css";
 
-type PlannerChoice = "auto" | "all" | "debate" | "codex" | "claude" | "antigravity";
-type DebateParticipant = "claude" | "codex" | "antigravity";
+type PlannerChoice = "auto" | "all" | "debate" | "codex" | "claude" | "antigravity" | (string & {});
+// Bilinen CLI'lar + UI/.env'den gelen API sağlayıcı id'leri ("api:<id>") de katılımcı olabilir.
+type DebateParticipant = "claude" | "codex" | "antigravity" | (string & {});
 type ChatMode = "single" | "multi" | "debate";
 type Language = "en" | "tr";
 type UiText = typeof uiText.en;
@@ -125,6 +126,13 @@ const plannerLabelsByLanguage: Record<Language, Record<PlannerChoice, string>> =
     antigravity: "Antigravity CLI"
   }
 };
+
+// plannerLabels haritasında olmayan id'ler (API sağlayıcı "api:<id>") için güvenli etiket.
+function plannerLabelOf(labels: Record<PlannerChoice, string>, cli: string): string {
+  const known = (labels as Record<string, string>)[cli];
+  if (known) return known;
+  return cli.startsWith("api:") || cli.startsWith("api-") ? "API" : cli;
+}
 
 const modeMetaByLanguage: Record<Language, Record<ChatMode, { label: string; desc: string }>> = {
   en: {
@@ -1716,13 +1724,33 @@ function App() {
   }, [verifiedTools]);
 
   // Katılımcı eklemek için: her doğrulanmış CLI ve onun model seçenekleri.
+  // UI/.env'den eklenen API sağlayıcılar (katılımcı listesine eklenir). Ayarlar kapanınca yenilenir.
+  const [apiProviders, setApiProviders] = useState<Array<{ id: string; name: string; model: string; role: string; enabled?: boolean; source: string }>>([]);
+  const loadApiProviders = useCallback(async () => {
+    try {
+      const r = await api.get<{ configured: Array<Record<string, unknown>>; envConfigured: Array<Record<string, unknown>> }>("/api/api-providers");
+      const merge = [...(r.configured ?? []), ...(r.envConfigured ?? [])];
+      setApiProviders(merge.map((p) => ({ id: String(p.id), name: String(p.name), model: String(p.model ?? ""), role: String(p.role ?? "builder"), enabled: p.enabled !== false, source: String(p.source ?? "ui") })));
+    } catch { /* yoksay */ }
+  }, []);
+  useEffect(() => { void loadApiProviders(); }, [loadApiProviders, settingsOpen]);
+
   const participantSources = useMemo(() => {
-    return verifiedTools.map((tool) => ({
+    const cliSrc = verifiedTools.map((tool) => ({
       cli: tool.id as DebateParticipant,
       label: displayToolName(tool.id),
       models: tool.modelOptions?.length ? tool.modelOptions : [{ id: "default", label: "default", limited: false }]
     }));
-  }, [verifiedTools]);
+    // UI/.env'den eklenen API sağlayıcılar da CLI'lar gibi katılımcı: cli="api:<id>", tek model.
+    const apiSrc = apiProviders
+      .filter((p) => p.enabled !== false && p.model)
+      .map((p) => ({
+        cli: `api:${p.id}` as DebateParticipant,
+        label: p.name,
+        models: [{ id: p.model, label: p.model, limited: false }]
+      }));
+    return [...cliSrc, ...apiSrc];
+  }, [verifiedTools, apiProviders]);
 
   // If the selected single-agent CLI is no longer verified, switch to the first valid one.
   useEffect(() => {
@@ -5085,7 +5113,7 @@ function ChatPanel({
           <article className="chatBubble assistant thinking compact">
             <div className="messageMeta">
               <Sparkles size={14} />
-              <span>{plannerLabels[selectedPlanner]} {text.isThinking}</span>
+              <span>{plannerLabelOf(plannerLabels, selectedPlanner)} {text.isThinking}</span>
             </div>
             <div className="typingDots">
               <span />
@@ -5477,7 +5505,7 @@ function ModelPicker({
   };
 
   const singleValueLabel = selected
-    ? `${plannerLabels[selected.cli]}${selected.model && selected.model !== "default" ? ` · ${modelLabelOf(selected.cli, selected.model)}` : ""}`
+    ? `${plannerLabels[selected.cli] ?? sources.find((s) => s.cli === selected.cli)?.label ?? plannerLabelOf(plannerLabels, selected.cli)}${selected.model && selected.model !== "default" ? ` · ${modelLabelOf(selected.cli, selected.model)}` : ""}`
     : (noneLabel ?? "");
 
   return (
@@ -5486,7 +5514,7 @@ function ModelPicker({
         {mode === "multi" &&
           participants.map((p, i) => (
             <span className="partChip on" key={`${p.cli}-${p.model}-${i}`}>
-              {plannerLabels[p.cli]}{p.model !== "default" ? ` · ${modelLabelOf(p.cli, p.model)}` : ""}
+              {plannerLabels[p.cli] ?? sources.find((s) => s.cli === p.cli)?.label ?? plannerLabelOf(plannerLabels, p.cli)}{p.model !== "default" ? ` · ${modelLabelOf(p.cli, p.model)}` : ""}
               <button
                 className="partChipRemove"
                 onClick={() => onParticipantsChange?.(participants.filter((_, idx) => idx !== i))}
@@ -5589,7 +5617,7 @@ function ParticipantPicker({
       <div className="partChips">
         {participants.map((p, index) => (
           <span className="partChip on" key={`${p.cli}-${p.model}-${index}`}>
-            {plannerLabels[p.cli]}{p.model !== "default" ? ` · ${modelLabel(p.cli, p.model)}` : ""}
+            {plannerLabels[p.cli] ?? sources.find((s) => s.cli === p.cli)?.label ?? plannerLabelOf(plannerLabels, p.cli)}{p.model !== "default" ? ` · ${modelLabel(p.cli, p.model)}` : ""}
             <button
               className="partChipRemove"
               onClick={() => onChange(participants.filter((_, i) => i !== index))}
@@ -6235,7 +6263,7 @@ function StreamPanel({ items, onClear, language }: { items: StreamItem[]; onClea
   );
 }
 
-function iconForTool(id: CliToolStatus["id"]) {
+function iconForTool(id: string) {
   if (id === "claude") {
     return (
       <svg fill="currentColor" fillRule="evenodd" viewBox="0 0 24 24" width="18" height="18" style={{ flex: "none", display: "block" }}>
@@ -6363,9 +6391,10 @@ function LoginModal({
   );
 }
 
-function displayToolName(id: CliToolStatus["id"]) {
+function displayToolName(id: string) {
   if (id === "claude") return "Claude Code";
   if (id === "codex") return "OpenAI Codex";
+  if (id.startsWith("api:") || id.startsWith("api-")) return "API";
   return "Antigravity CLI";
 }
 

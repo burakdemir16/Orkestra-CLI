@@ -36,6 +36,7 @@ import {
   logoutCli,
   runDebate,
   runPlannerChat,
+  setApiProviderResolver,
   testCli
 } from "./cli";
 import type { Agent, ChatMessage, ChatParticipant, ChatRequest, CreateRunRequest, EffortLevel, SaveAgentRequest } from "../../../packages/shared/types";
@@ -51,6 +52,8 @@ void githubStore.getToken().then((t) => { runner.githubToken = t; });
 // UI'dan eklenen API sağlayıcıları: çalıştırma anında runner buradan (şifreli store) çözer.
 const apiProviderStore = new ApiProviderStore(config.dataDir);
 runner.getStoredApiProvider = (command) => apiProviderStore.get(command);
+// Chat/debate/operatör/plan (cli.ts) da UI'dan eklenen sağlayıcıları çözebilsin.
+setApiProviderResolver((id) => apiProviderStore.get(id));
 // Açılışta kayıtlı sağlayıcıları ajan listesine ekle (env tabanlılar db.ts'te ekleniyor).
 void apiProviderStore.list().then((configs) => {
   for (const cfg of configs) {
