@@ -1,6 +1,6 @@
 import { spawn, execFile } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join, relative, dirname } from "node:path";
 import type { Agent, PlanTask, Run, RunEventType } from "../../../packages/shared/types";
 import { interpolateArgs } from "./template";
 import { GitService } from "./git";
@@ -761,20 +761,30 @@ export class Runner {
     return output;
   }
 
-  private async runApiAgent(agent: Agent, run: Run, transcript: string, notes: string[] = [], opts?: { promptText?: string }) {
+  private async runApiAgent(agent: Agent, run: Run, transcript: string, notes: string[] = [], opts?: { promptText?: string; cwd?: string }) {
     let config = getApiProviderConfig(agent.command);
     if (!config && this.getStoredApiProvider) config = await this.getStoredApiProvider(agent.command);
     if (!config) throw new Error(`API provider not configured for ${agent.command}.`);
+    const cwd = opts?.cwd ?? run.workspacePath;
+    // API modelleri (CLI'ların aksine) dosya sistemine erişemez; sadece metin döndürür.
+    // Kodlama rollerinde, çıktıdaki yol-etiketli blokları biz dosyalara yazarız.
+    const writesCode = agent.role === "builder" || agent.role === "fixer" || agent.role === "custom";
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), agent.timeoutSeconds * 1000);
     let promptText = opts?.promptText ?? buildAgentPrompt(run.prompt, agent, transcript, notes);
-    if (this.githubToken) {
+    if (writesCode) {
+      promptText += "\n\n[DOSYA ÇIKTI KURALI / FILE OUTPUT RULE: API agents can't touch the filesystem, so emit every file you create or modify as a fenced code block whose info line is the file's workspace-relative path, then Orkestra writes it. Output the COMPLETE file. Example:\n```src/index.html\n<full file content>\n```\nUse one block per file. Keep prose minimal.]";
+    } else if (this.githubToken) {
       promptText += "\n\n[GitHub bağlı: API ajanı doğrudan git komutu çalıştıramaz; uygulanacak değişiklikleri açıkça tarif et.]";
     }
     try {
       const output = await runApiProvider(config, promptText, controller.signal);
       const clean = output.trim() || "(no output)";
       this.emit(run.id, "stdout", clean, agent.id, clean);
+      if (writesCode) {
+        const written = this.writeApiFiles(run.id, cwd, clean);
+        if (written > 0) this.emit(run.id, "agent_step", `📝 ${agent.name}: ${written} file(s) written.`, agent.id);
+      }
       this.checkLimit(agent, run.id, clean);
       const current = this.store.getAgent(agent.id);
       if (current?.status !== "limited") this.store.setAgentStatus(agent.id, "available");
@@ -791,6 +801,31 @@ export class Runner {
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  // API ajanının metin çıktısındaki "```<yol>\n...```" bloklarını workspace'e dosya olarak yazar.
+  // (API modelleri dosya sistemine erişemediği için CLI'ların yaptığını biz yapıyoruz.)
+  private writeApiFiles(runId: string, cwd: string, output: string): number {
+    let count = 0;
+    const fence = /```[^\S\n]*([^\n`]*)\n([\s\S]*?)```/g;
+    let m: RegExpExecArray | null;
+    while ((m = fence.exec(output)) !== null) {
+      const info = (m[1] || "").trim();
+      const cand = info.split(/\s+/).filter(Boolean).pop() || "";
+      // info satırı bir dosya yolu mu? (uzantı/eğik çizgi içermeli — salt dil etiketi değil)
+      if (!cand || !/[./\\]/.test(cand)) continue;
+      const rel = cand.replace(/^[./\\]+/, "").replace(/\\/g, "/");
+      if (!rel || rel.includes("..") || rel.length > 200) continue;
+      try {
+        const full = join(cwd, rel);
+        mkdirSync(dirname(full), { recursive: true });
+        const existed = existsSync(full);
+        writeFileSync(full, m[2].replace(/\s+$/, "") + "\n", "utf8");
+        this.emit(runId, existed ? "file_changed" : "file_created", rel, null, JSON.stringify({ path: rel, adds: 0, dels: 0 }));
+        count++;
+      } catch { /* yoksay */ }
+    }
+    return count;
   }
 
   private checkLimit(agent: Agent, runId: string, text: string) {
