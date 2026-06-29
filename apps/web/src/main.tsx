@@ -1669,9 +1669,23 @@ function App() {
     [cliStatus]
   );
   // Verified CLIs available in single-agent mode.
+  // UI/.env'den eklenen API sağlayıcılar (katılımcı + tek-ajan listesine eklenir). Ayarlar kapanınca yenilenir.
+  const [apiProviders, setApiProviders] = useState<Array<{ id: string; name: string; model: string; role: string; enabled?: boolean; source: string }>>([]);
+  const loadApiProviders = useCallback(async () => {
+    try {
+      const r = await api.get<{ configured: Array<Record<string, unknown>>; envConfigured: Array<Record<string, unknown>> }>("/api/api-providers");
+      const merge = [...(r.configured ?? []), ...(r.envConfigured ?? [])];
+      setApiProviders(merge.map((p) => ({ id: String(p.id), name: String(p.name), model: String(p.model ?? ""), role: String(p.role ?? "builder"), enabled: p.enabled !== false, source: String(p.source ?? "ui") })));
+    } catch { /* yoksay */ }
+  }, []);
+  useEffect(() => { void loadApiProviders(); }, [loadApiProviders, settingsOpen]);
+
   const cliOptions = useMemo(
-    () => verifiedTools.map((tool) => tool.id as DebateParticipant),
-    [verifiedTools]
+    () => [
+      ...verifiedTools.map((tool) => tool.id as DebateParticipant),
+      ...apiProviders.filter((p) => p.enabled !== false && p.model).map((p) => `api:${p.id}` as DebateParticipant)
+    ],
+    [verifiedTools, apiProviders]
   );
   const multiAvailable = verifiedTools.length > 1;
   const workspaceFileEventCount = useMemo(
@@ -1724,17 +1738,6 @@ function App() {
   }, [verifiedTools]);
 
   // Katılımcı eklemek için: her doğrulanmış CLI ve onun model seçenekleri.
-  // UI/.env'den eklenen API sağlayıcılar (katılımcı listesine eklenir). Ayarlar kapanınca yenilenir.
-  const [apiProviders, setApiProviders] = useState<Array<{ id: string; name: string; model: string; role: string; enabled?: boolean; source: string }>>([]);
-  const loadApiProviders = useCallback(async () => {
-    try {
-      const r = await api.get<{ configured: Array<Record<string, unknown>>; envConfigured: Array<Record<string, unknown>> }>("/api/api-providers");
-      const merge = [...(r.configured ?? []), ...(r.envConfigured ?? [])];
-      setApiProviders(merge.map((p) => ({ id: String(p.id), name: String(p.name), model: String(p.model ?? ""), role: String(p.role ?? "builder"), enabled: p.enabled !== false, source: String(p.source ?? "ui") })));
-    } catch { /* yoksay */ }
-  }, []);
-  useEffect(() => { void loadApiProviders(); }, [loadApiProviders, settingsOpen]);
-
   const participantSources = useMemo(() => {
     const cliSrc = verifiedTools.map((tool) => ({
       cli: tool.id as DebateParticipant,
@@ -1816,16 +1819,17 @@ function App() {
   }, [modelOptions, selectedModel]);
 
   async function refresh() {
-    const [nextAgents, nextRuns, nextGit, nextCli] = await Promise.all([
+    // Hızlı veriler (JSON store) için bekle → UI anında gelsin.
+    const [nextAgents, nextRuns, nextGit] = await Promise.all([
       api.get<Agent[]>("/api/agents"),
       api.get<Run[]>("/api/runs"),
-      api.get<GitStatus>("/api/git/status").catch(() => null),
-      api.get<CliStatusResponse>("/api/cli-status").catch(() => null)
+      api.get<GitStatus>("/api/git/status").catch(() => null)
     ]);
     setAgents(nextAgents);
     setRuns(nextRuns);
     setGitStatus(nextGit);
-    setCliStatus(nextCli);
+    // CLI durum/limit sorgusu (soğukken yavaş) UI'ı BLOKLAMASIN → geldiğinde doldur.
+    void api.get<CliStatusResponse>("/api/cli-status").catch(() => null).then((c) => { if (c) setCliStatus(c); });
   }
 
   // Aktif kod oturumu id'sini sakla → yenilemede aynı oturum geri açılır.
@@ -4624,9 +4628,6 @@ function ApiProvidersSection({ language }: { language: Language }) {
           ) : (
             <input placeholder={`${language === "tr" ? "Model (tam id, örn." : "Model (exact id, e.g."} ${modelExample})`} value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} />
           )}
-          <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
-            {["planner", "builder", "reviewer", "fixer", "custom"].map((r) => <option key={r} value={r}>{r}</option>)}
-          </select>
           <input placeholder={tt.nameOptional} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           {err && <p className="apiProviderErr">{err}</p>}
           <div className="apiProviderFormActions">
