@@ -735,7 +735,6 @@ function loginCommand(id: PlannerId) {
     return "gemini";
   }
 
-  const npmDir = join(process.env.APPDATA ?? join(process.env.USERPROFILE ?? "", "AppData", "Roaming"), "npm");
   if (id === "claude") {
     return "claude auth login";
   }
