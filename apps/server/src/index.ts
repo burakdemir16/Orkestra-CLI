@@ -67,7 +67,7 @@ if (existsSync(webDist)) {
   });
 }
 
-type TerminalShell = "powershell" | "cmd";
+type TerminalShell = "powershell" | "cmd" | "bash";
 type TerminalSession = {
   id: string;
   shell: TerminalShell;
@@ -287,11 +287,14 @@ function cliPtyEnv(): Record<string, string> {
 function spawnCapturedPty(name: string, command: string, rows = 30): string {
   if (!ptyMod) throw new Error("Entegre terminal bu kurulumda kullanılamıyor (node-pty yüklü değil).");
   const id = randomUUID();
-  const proc = ptyMod.spawn("powershell.exe", ["-NoLogo", "-Command", command], {
+  const isWin = process.platform === "win32";
+  const shell = isWin ? "powershell.exe" : "bash";
+  const shellArgs = isWin ? ["-NoLogo", "-Command", command] : ["-lc", command];
+  const proc = ptyMod.spawn(shell, shellArgs, {
     name: "xterm-color", cols: 120, rows, cwd: process.cwd(), env: cliPtyEnv()
   });
   const session: TerminalSession = {
-    id, shell: "powershell", name, cwd: process.cwd(),
+    id, shell: isWin ? "powershell" : "bash", name, cwd: process.cwd(),
     buffer: "", rawBuffer: "", process: proc, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
   };
   proc.onData((data) => {
@@ -308,10 +311,13 @@ function spawnCapturedPty(name: string, command: string, rows = 30): string {
 
 app.post<{ Params: { agent: "claude" | "codex" | "antigravity" } }>("/api/cli/:agent/install", async (request) => {
   const agent = request.params.agent;
+  const isWin = process.platform === "win32";
   const cmd =
     agent === "claude" ? "npm install -g @anthropic-ai/claude-code"
     : agent === "codex" ? "npm install -g @openai/codex"
-    : "irm https://antigravity.google/cli/install.ps1 | iex"; // agy
+    : isWin
+      ? "irm https://antigravity.google/cli/install.ps1 | iex"
+      : "curl -fsSL https://antigravity.google/cli/install.sh | bash"; // agy
   // Non-blocking: pty'de başlat, hemen dön. Frontend durumu yoklayıp "kuruldu"yu yakalar.
   const id = spawnCapturedPty(`${agent} install`, cmd);
   return { ok: true, terminalId: id, message: `${agent} kurulumu başladı (tamamlanınca otomatik algılanır).` };
@@ -334,7 +340,8 @@ let loginWinStart = 0;
 let loginWinLogSize = 0; // login başlarkenki cli.log boyutu — YENİ satırları ayırt etmek için
 
 function agyCliLogPath() {
-  return join(process.env.USERPROFILE ?? "", ".gemini", "antigravity-cli", "cli.log");
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
+  return join(home, ".gemini", "antigravity-cli", "cli.log");
 }
 
 // agy login TAM bitti mi? REPL'e gelince cli.log'a "Auth done received / silent auth succeeded /

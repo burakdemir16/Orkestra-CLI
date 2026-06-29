@@ -1,4 +1,4 @@
-import { execFile, spawn } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -496,14 +496,30 @@ export function startLoginCli(id: PlannerId) {
   };
 }
 
+// Cross-platform home directory (Linux/macOS uses HOME, Windows uses USERPROFILE).
+function userHome(): string {
+  return process.env.HOME ?? process.env.USERPROFILE ?? "";
+}
+
 function agyExecutablePath() {
-  const agyExe = join(process.env.USERPROFILE ?? "", "AppData", "Local", "agy", "bin", "agy.exe");
+  // Linux/macOS: check common install locations (~/.local/bin/agy, homebrew, /usr/local/bin)
+  if (process.platform !== "win32") {
+    for (const candidate of [
+      join(userHome(), ".local", "bin", "agy"),
+      join("/home", "linuxbrew", ".linuxbrew", "bin", "agy"),
+      join("/usr", "local", "bin", "agy"),
+    ]) {
+      if (existsSync(candidate)) return candidate;
+    }
+    return undefined;
+  }
+  const agyExe = join(userHome(), "AppData", "Local", "agy", "bin", "agy.exe");
   return existsSync(agyExe) ? agyExe : undefined;
 }
 
 // Sadece auth durumunu loglardan okur (kurulu tespiti ayrı: agyInstalledByFile).
 function getAgyLogStatus() {
-  const logPath = join(process.env.USERPROFILE ?? "", ".gemini", "antigravity-cli", "cli.log");
+  const logPath = join(userHome(), ".gemini", "antigravity-cli", "cli.log");
   if (!existsSync(logPath)) return { authenticated: false };
   try {
     const log = readFileSync(logPath, "utf8");
@@ -520,16 +536,24 @@ function getAgyLogStatus() {
 // agy GERÇEKTEN kurulu mu? Bilinen dosya konumlarına bakar (PATH fallback değil).
 function agyInstalledByFile(): boolean {
   if (agyExecutablePath()) return true;
-  const agyBin = join(process.env.USERPROFILE ?? "", "AppData", "Local", "agy", "bin");
+  // Linux/macOS: also try resolving via `which` as last resort
+  if (process.platform !== "win32") {
+    try {
+      const result = execFileSync("which", ["agy"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+      if (result && existsSync(result)) return true;
+    } catch { /* not in PATH */ }
+    return false;
+  }
+  const agyBin = join(userHome(), "AppData", "Local", "agy", "bin");
   if (existsSync(agyBin)) return true;
-  const npmDir = join(process.env.APPDATA ?? join(process.env.USERPROFILE ?? "", "AppData", "Roaming"), "npm");
+  const npmDir = join(process.env.APPDATA ?? join(userHome(), "AppData", "Roaming"), "npm");
   if (existsSync(join(npmDir, "agy.cmd")) || existsSync(join(npmDir, "agy.exe"))) return true;
   return false;
 }
 
 // Tüm agy transcript.jsonl dosyalarını mtime'larıyla listeler.
 function listAgyTranscripts(): { path: string; mtimeMs: number }[] {
-  const brainDir = join(process.env.USERPROFILE ?? "", ".gemini", "antigravity-cli", "brain");
+  const brainDir = join(userHome(), ".gemini", "antigravity-cli", "brain");
   if (!existsSync(brainDir)) return [];
   try {
     return readdirSync(brainDir, { withFileTypes: true })
@@ -1082,7 +1106,7 @@ async function getClaudeStatus(): Promise<CliToolStatus> {
 async function getCodexStatus(): Promise<CliToolStatus> {
   try {
     const output = await runTool("codex", ["login", "status"], "", statusTimeoutMs);
-    const authPath = join(process.env.USERPROFILE ?? "", ".codex", "auth.json");
+    const authPath = join(userHome(), ".codex", "auth.json");
     const authJson = existsSync(authPath) ? readFileSync(authPath, "utf8") : "";
     const hasToken = /"tokens"\s*:|"OPENAI_API_KEY"\s*:\s*"/.test(authJson);
     const badAuth = /not logged in|not authenticated|giriş yapılmadı|oturum açılmadı/i.test(output);
@@ -1098,7 +1122,7 @@ async function getCodexStatus(): Promise<CliToolStatus> {
       lastError: badAuth ? "Codex oturumu gecersiz gorunuyor. codex login gerekli." : undefined
     };
   } catch (error) {
-    const authPath = join(process.env.USERPROFILE ?? "", ".codex", "auth.json");
+    const authPath = join(userHome(), ".codex", "auth.json");
     const authJson = existsSync(authPath) ? readFileSync(authPath, "utf8") : "";
     const hasToken = /"tokens"\s*:|"OPENAI_API_KEY"\s*:\s*"/.test(authJson);
     if (hasToken) {
@@ -1253,7 +1277,7 @@ function resolveTool(command: string) {
   if (command === "agy") {
     const agyExe = agyExecutablePath();
     if (agyExe) return { executable: agyExe, prefixArgs: [] as string[] };
-    const agyBin = join(process.env.USERPROFILE ?? "", "AppData", "Local", "agy", "bin");
+    const agyBin = join(userHome(), "AppData", "Local", "agy", "bin");
     if (existsSync(agyBin)) {
       return { executable: "cmd.exe", prefixArgs: ["/d", "/s", "/c", `set "PATH=${agyBin};%PATH%" && agy`] };
     }
