@@ -22,6 +22,7 @@ import { EventHub } from "./events";
 import { Runner } from "./runner";
 import { GitService } from "./git";
 import { GitHubStore, getUser, createRepo, createPr, parseGitHubRemote, deviceStart, devicePoll } from "./github";
+import { linuxFolderPicker } from "./folder-picker";
 import { PreviewManager, detectProjectType } from "./preview";
 import {
   analyzeDebate,
@@ -635,8 +636,27 @@ app.post<{ Body: { name?: string } }>("/api/projects/create", async (request, re
 // Mevcut bir klasörü proje olarak aç: native klasör seçme dialog'u açar, seçilen yolu
 // "açılan kök" olarak kaydeder (dosya/run/aç izinleri ona da verilir) ve döndürür.
 app.post("/api/projects/open", async (_request, reply) => {
+  if (process.platform === "linux") {
+    const picker = linuxFolderPicker();
+    if (!picker.available()) {
+      return reply.code(400).send({
+        error: "Klasör seçici için zenity veya kdialog gerekli. Biri yoksa manuel yol girişi kullanın."
+      });
+    }
+    const selected = await picker.pick();
+    if (!selected) return reply.send({ cancelled: true });
+    const resolved = resolve(selected);
+    if (!existsSync(resolved) || !statSync(resolved).isDirectory()) {
+      return reply.code(400).send({ error: "Geçerli bir klasör seçilmedi." });
+    }
+    openedRoots.add(resolved);
+    saveOpenedRoots();
+    const name = resolved.split(/[\\/]/).filter(Boolean).pop() || "proje";
+    return reply.send({ workspacePath: resolved, name });
+  }
   if (process.platform !== "win32") {
-    return reply.code(400).send({ error: "Klasör seçici şu an yalnızca Windows'ta destekleniyor." });
+    // macOS / diğer: takip işi (osascript) bir macOS geliştirici tarafından eklenecek.
+    return reply.code(400).send({ error: "Klasör seçici şu an yalnızca Windows ve Linux'ta destekleniyor." });
   }
   // Modern Explorer-stili klasör seçici: IFileOpenDialog (FOS_PICKFOLDERS) — eski ağaç dialog'u değil.
   // C# COM arayüzü Add-Type ile derlenir. Escape sorunu olmasın diye script'i temp .ps1'e yazıp -File ile çalıştırırız.
@@ -822,12 +842,12 @@ public static class Fg {
 '@
 Add-Type -TypeDefinition $code -Language CSharp
 Start-Sleep -Milliseconds 900
-$norm = $target.TrimEnd('\')
+$norm = $target.TrimEnd('')
 $shell = New-Object -ComObject Shell.Application
 foreach ($w in $shell.Windows()) {
   try {
     $p = $w.Document.Folder.Self.Path
-    if ($p -and ($p.TrimEnd('\') -ieq $norm)) { [Fg]::Bring([IntPtr]$w.HWND); break }
+    if ($p -and ($p.TrimEnd('') -ieq $norm)) { [Fg]::Bring([IntPtr]$w.HWND); break }
   } catch {}
 }
 } catch {}
