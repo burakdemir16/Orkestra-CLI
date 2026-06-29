@@ -57,7 +57,7 @@ await app.register(cors, { origin: true });
 
 // Üretim / global kurulum: derlenmiş web arayüzünü (dist/web) sunucudan servis et. Geliştirmede
 // (vite ayrı port) bu klasör yoksa atlanır. SPA fallback → istemci rotaları index.html'e düşer.
-const webDist = join(resolve(process.cwd()), "dist", "web");
+const webDist = process.env.ORKESTRA_WEB_DIST || join(resolve(process.cwd()), "dist", "web");
 if (existsSync(webDist)) {
   await app.register(fastifyStatic, { root: webDist, wildcard: false });
   app.setNotFoundHandler((request, reply) => {

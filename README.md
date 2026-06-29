@@ -231,11 +231,14 @@ ORKESTRA_HOST=127.0.0.1
 ORKESTRA_PORT=8787
 ORKESTRA_DATA_DIR=data
 ORKESTRA_WORKSPACE_DIR=workspaces
+ORKESTRA_WEB_DIST=dist/web
 # Per-agent run timeout in seconds (default 1800 = 30 min)
 ORKESTRA_AGENT_TIMEOUT_SECONDS=1800
 ```
 
 > 💡 **Performance tip:** keep `ORKESTRA_WORKSPACE_DIR` **outside a cloud-synced folder** (e.g. OneDrive). Cloud sync makes Git operations on large workspaces noticeably slower.
+
+`ORKESTRA_WEB_DIST` is optional. It lets packaged launchers point the Fastify server at a bundled web build even when their working directory is not the repository root.
 
 ---
 
