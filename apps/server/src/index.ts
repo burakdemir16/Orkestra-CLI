@@ -40,7 +40,7 @@ import type { Agent, ChatMessage, ChatParticipant, ChatRequest, CreateRunRequest
 const config = getConfig();
 const store = new Store(config);
 const hub = new EventHub();
-const runner = new Runner(store, hub);
+const runner = new Runner(store, hub, { stagingRoot: join(config.dataDir, "staging") });
 const git = new GitService(process.cwd());
 const githubStore = new GitHubStore(config.dataDir);
 // Ajan git push/clone'u için token'ı bellekte runner'a ver (diske yazmadan).
@@ -514,7 +514,9 @@ app.post<{ Body: CreateRunRequest }>("/api/runs", async (request, reply) => {
     createdAt: new Date().toISOString(),
     completedAt: null,
     activeStep: "queued",
-    summary: null
+    summary: null,
+    preWriteApproval: request.body.preWriteApproval === true,
+    pendingPhase: null
   };
   store.createRun(run);
   const event = store.addEvent({

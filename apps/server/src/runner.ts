@@ -4,6 +4,7 @@ import { join, relative } from "node:path";
 import type { Agent, PlanTask, Run, RunEventType } from "../../../packages/shared/types";
 import { interpolateArgs } from "./template";
 import { GitService } from "./git";
+import { applyStaging, createStaging, discardStaging, findStaging, type StagingSession } from "./staging";
 import type { Store } from "./db";
 import type { EventHub } from "./events";
 
@@ -56,6 +57,9 @@ type RunControl = {
   // TÜM aktif çocuk süreçler (paralel ajanlar). Durdurmada hepsi öldürülür.
   children: Set<ReturnType<typeof spawnCommand>>;
   resume?: () => void; // faz onayı: kullanıcı "devam et" deyince bir sonraki faza geçer
+  // Pre-write diff approval: emit phase_pending_review, wait for user.
+  approve?: () => void;
+  discard?: () => void;
 };
 
 export class Runner {
@@ -63,11 +67,17 @@ export class Runner {
   // GitHub token'ı (yalnızca bellekte). Ajanın git push/clone/fetch'i için süreç ortamına
   // GIT_CONFIG ile geçirilir → token diske YAZILMAZ. index.ts bağlan/kes'te günceller.
   githubToken: string | null = null;
+  // Pre-write diff approval: worktrees are created under this root. The
+  // workspace is never touched until the user applies.
+  stagingRoot: string;
 
   constructor(
     private store: Store,
-    private hub: EventHub
-  ) {}
+    private hub: EventHub,
+    opts: { stagingRoot: string }
+  ) {
+    this.stagingRoot = opts.stagingRoot;
+  }
 
   start(run: Run) {
     this.controls.set(run.id, { notes: [], stop: false, children: new Set() });
@@ -78,6 +88,34 @@ export class Runner {
   startTeam(run: Run, tasks: PlanTask[]) {
     this.controls.set(run.id, { notes: [], stop: false, children: new Set() });
     void this.executeTeam(run, tasks);
+  }
+
+  // Pre-write diff approval: kullanıcı "Uygula" dedi. workspace'e merge et,
+  // mevcut fazı tamamla ve sıradakine geç. Yalnızca canlı bekleyen phase_pending_review için çalışır.
+  applyPendingPhase(runId: string): boolean {
+    const control = this.controls.get(runId);
+    if (control?.approve) {
+      const fn = control.approve;
+      control.approve = undefined;
+      control.discard = undefined;
+      fn();
+      return true;
+    }
+    return false;
+  }
+
+  // Pre-write diff approval: kullanıcı "At" dedi. Staging worktree'i sil,
+  // bu fazı atla, sıradakine geç. Stop işaretliyse run'ı da durdurur.
+  discardPendingPhase(runId: string): boolean {
+    const control = this.controls.get(runId);
+    if (control?.discard) {
+      const fn = control.discard;
+      control.approve = undefined;
+      control.discard = undefined;
+      fn();
+      return true;
+    }
+    return false;
   }
 
   // Faz onayı: kullanıcı "devam et" dediğinde bir sonraki faz başlar.
@@ -128,6 +166,8 @@ export class Runner {
 
   // Fazları startIndex'ten itibaren çalıştırır. Her faz arası onay bekler ve ilerlemeyi
   // diske KALICI yazar (.orkestra-phase.json) → durdurma/yeniden başlatma sonrası resume edilebilir.
+  // run.preWriteApproval: her faz başında bir git worktree açılır, ajanlar orada çalışır,
+  // faz tamamlanınca kullanıcı diff'i onaylayana kadar workspace değişmez.
   private async runPhasesFrom(run: Run, tasks: PlanTask[], done: Map<string, string>, startIndex: number) {
     const control = this.controls.get(run.id);
     const lang = runLang(run.prompt);
@@ -142,12 +182,81 @@ export class Runner {
         const phaseTasks = tasks.filter((t) => (t.phase ?? 1) === phaseNo);
         if (multiPhase) this.emit(run.id, "agent_step", en ? `🚀 Phase ${phaseNo}/${phases.length} starting (${phaseTasks.length} tasks).` : `🚀 Faz ${phaseNo}/${phases.length} başlıyor (${phaseTasks.length} görev).`);
 
-        const stopped = await this.executePhaseTasks(run, phaseTasks, done, control);
-        if (stopped) {
-          // Faz İÇİNDE durduruldu → bu faz yarım kalmış olabilir; resume'da BU fazı (pi) tekrar
+        // Pre-write approval: bu faz için bir worktree aç, ajanlar orada çalışsın.
+        let staging: StagingSession | null = null;
+        if (run.preWriteApproval) {
+          try {
+            staging = await createStaging(run.workspacePath, this.stagingRoot, run.id, phaseNo);
+            this.store.updateRun(run.id, { pendingPhase: phaseNo });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.emit(run.id, "failed", en ? `Staging worktree failed: ${message}` : `Çalışma alanı hazırlanamadı: ${message}`);
+            savePhaseState(run.workspacePath, { tasks, done: [...done], nextPhaseIndex: pi });
+            return;
+          }
+        }
+
+        const phaseResult = await this.executePhaseTasks(run, phaseTasks, done, control, { staging: staging ?? undefined });
+        if (phaseResult === "stopped") {
+          // Faz İÇİNDE durduruldu → staging varsa temizle, bu fazı (pi) tekrar
           // çalıştır (ajanlar mevcut dosyaları görüp tamamlar). State korunur.
+          if (staging) {
+            await discardStaging(run.workspacePath, staging).catch(() => undefined);
+            this.store.updateRun(run.id, { pendingPhase: null });
+          }
           savePhaseState(run.workspacePath, { tasks, done: [...done], nextPhaseIndex: pi });
           return;
+        }
+        if (phaseResult === "pending_review") {
+          // Staging zaten bu metoda girdi olarak verildi.
+          // Burada oluşmadıysa bekleyen bir session vardır (resume).
+          if (!staging) {
+            const found = await findStaging(run.workspacePath, this.stagingRoot, run.id, phaseNo);
+            if (!found) {
+              this.emit(run.id, "failed", en ? "Pending review but no staging worktree found." : "Onay bekliyor ama çalışma alanı bulunamadı.");
+              savePhaseState(run.workspacePath, { tasks, done: [...done], nextPhaseIndex: pi });
+              return;
+            }
+            staging = found;
+          }
+          savePhaseState(run.workspacePath, { tasks, done: [...done], nextPhaseIndex: pi });
+          const phaseLines = phaseTasks.map((t) => `• ${t.title}`).join("\n");
+          const report = en
+            ? `📝 Phase ${phaseNo}/${phases.length} ready for review:\n${phaseLines}\n\nReview the pending diff and Apply or Discard.`
+            : `📝 Faz ${phaseNo}/${phases.length} incelemeye hazır:\n${phaseLines}\n\nBekleyen değişikliği inceleyin, Uygula veya At.`;
+          this.store.updateRun(run.id, { activeStep: `phase ${phaseNo} pending review` });
+          this.emit(run.id, "phase_pending_review", report);
+          const decision = await new Promise<"approve" | "discard" | "stop">((resolveD) => {
+            if (!control) return resolveD("approve"); // sunucu yeniden başladıysa otomatik uygula
+            control.approve = () => resolveD("approve");
+            control.discard = () => resolveD("discard");
+          });
+          // Tek kullanımlık: temizle
+          if (control) { control.approve = undefined; control.discard = undefined; }
+          if (decision === "discard" || control?.stop) {
+            await discardStaging(run.workspacePath, staging).catch((e) => {
+              this.emit(run.id, "agent_step", en ? `Discard failed: ${e.message}` : `Atılamadı: ${e.message}`);
+            });
+            this.store.updateRun(run.id, { pendingPhase: null });
+            if (control?.stop) {
+              this.store.updateRun(run.id, { status: "failed", activeStep: "discarded", completedAt: new Date().toISOString(), summary: en ? "Discarded by user." : "Kullanıcı tarafından atıldı." });
+              this.emit(run.id, "failed", en ? "🗑️ Discarded. Stopping the run." : "🗑️ Atıldı. Çalışma durduruluyor.");
+              this.controls.delete(run.id);
+              return;
+            }
+            // Discard without stop: skip this phase, continue.
+            continue;
+          }
+          // Approve: merge staging into workspace, then continue.
+          try {
+            await applyStaging(run.workspacePath, staging);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.emit(run.id, "failed", en ? `Apply failed: ${message}` : `Uygulama başarısız: ${message}`);
+            savePhaseState(run.workspacePath, { tasks, done: [...done], nextPhaseIndex: pi });
+            return;
+          }
+          this.store.updateRun(run.id, { pendingPhase: null });
         }
 
         const phaseLines = phaseTasks.map((t) => `• ${t.title}`).join("\n");
@@ -200,8 +309,17 @@ export class Runner {
   }
 
   // Bir fazın görevlerini bağımlılığa göre (bağımsızlar paralel) çalıştırır.
-  // Durdurulduysa true döner.
-  private async executePhaseTasks(run: Run, phaseTasks: PlanTask[], done: Map<string, string>, control?: RunControl): Promise<boolean> {
+  // 'stopped' | 'completed' | 'pending_review' döner:
+  //   stopped       → kontrol stop işaretlenmiş; mevcut state korunur
+  //   pending_review → pre-write approval açık; staging korunur, apply/discard beklenir
+  //   completed     → normal akış
+  private async executePhaseTasks(
+    run: Run,
+    phaseTasks: PlanTask[],
+    done: Map<string, string>,
+    control?: RunControl,
+    opts?: { staging?: StagingSession }
+  ): Promise<"stopped" | "completed" | "pending_review"> {
     const en = runLang(run.prompt) === "en";
     const remaining = [...phaseTasks];
     const phaseIds = new Set(phaseTasks.map((t) => t.id));
@@ -210,7 +328,7 @@ export class Runner {
         this.store.updateRun(run.id, { status: "failed", activeStep: "stopped", completedAt: new Date().toISOString(), summary: en ? "Paused — resume with 'continue'." : "Duraklatıldı — 'devam et' ile sürdürülebilir." });
         this.emit(run.id, "failed", en ? "⏸️ Paused. Use 'Continue to next phase' to resume." : "⏸️ Duraklatıldı. 'Sıradaki faza devam et' ile kaldığı yerden sürdürebilirsin.");
         this.controls.delete(run.id);
-        return true;
+        return "stopped";
       }
       // Bağımlılıkları (bu faz içinde) tamamlanmış görevler paralel koşar.
       const ready = remaining.filter((t) => (t.dependsOn ?? []).filter((d) => phaseIds.has(d)).every((d) => done.has(d)));
@@ -223,17 +341,17 @@ export class Runner {
       if (roles.has("reviewer")) this.emit(run.id, "agent_step", en ? "🔍 Coding done — reviewing the code against the goal…" : "🔍 Kodlama bitti — kod amaca uygunluk açısından denetleniyor…");
       else if (roles.has("fixer")) this.emit(run.id, "agent_step", en ? "🔧 Fixing the detected issues…" : "🔧 Tespit edilen sorunlar ayıklanıyor / düzeltiliyor…");
       else if (ready.length > 1) this.emit(run.id, "agent_step", en ? `✍️ Coding ${ready.length} tasks in parallel…` : `✍️ ${ready.length} görev paralel kodlanıyor…`);
-      const results = await Promise.all(ready.map((task) => this.runTeamTask(run, task, done)));
+      const results = await Promise.all(ready.map((task) => this.runTeamTask(run, task, done, opts)));
       results.forEach((res, i) => done.set(ready[i].id, res));
       for (const task of ready) {
         const index = remaining.findIndex((t) => t.id === task.id);
         if (index >= 0) remaining.splice(index, 1);
       }
     }
-    return false;
+    return opts?.staging ? "pending_review" : "completed";
   }
 
-  private async runTeamTask(run: Run, task: PlanTask, done: Map<string, string>): Promise<string> {
+  private async runTeamTask(run: Run, task: PlanTask, done: Map<string, string>, opts?: { staging?: StagingSession }): Promise<string> {
     const role = task.role ?? "builder";
     // Birincil ajan çözümü:
     // 1) task.agentId → konfigüre ajan
@@ -249,7 +367,8 @@ export class Runner {
       return "(ajan yok)";
     }
     const folder = (task.folder ?? "").replace(/[^a-z0-9._/-]/gi, "");
-    const cwd = folder ? join(run.workspacePath, folder) : run.workspacePath;
+    const baseCwd = opts?.staging?.worktreePath ?? run.workspacePath;
+    const cwd = folder ? join(baseCwd, folder) : baseCwd;
     const depContext = (task.dependsOn ?? [])
       .map((d) => done.get(d))
       .filter(Boolean)
