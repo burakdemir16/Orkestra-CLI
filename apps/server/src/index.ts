@@ -576,6 +576,34 @@ app.post<{ Params: { id: string } }>("/api/runs/:id/resume", async (request, rep
   return { ok: true };
 });
 
+// Pre-write diff approval: onayla. Sadece canlı bekleyen phase_pending_review varsa işler.
+app.post<{ Params: { id: string } }>("/api/runs/:id/apply", async (request, reply) => {
+  const ok = runner.applyPendingPhase(request.params.id);
+  if (!ok) return reply.code(409).send({ error: "Run is not awaiting pre-write review." });
+  return { ok: true };
+});
+
+// Pre-write diff approval: at. Yalnızca canlı bekleyen review varsa işler.
+app.post<{ Params: { id: string } }>("/api/runs/:id/discard", async (request, reply) => {
+  const ok = runner.discardPendingPhase(request.params.id);
+  if (!ok) return reply.code(409).send({ error: "Run is not awaiting pre-write review." });
+  return { ok: true };
+});
+
+// Pre-write diff approval: bekleyen fazın staging diff'ini döner (UI'ın göstereceği aynı DiffFile[]).
+app.get<{ Params: { id: string } }>("/api/runs/:id/pending", async (request, reply) => {
+  const run = store.getRun(request.params.id);
+  if (!run) return reply.code(404).send({ error: "Run not found" });
+  if (run.pendingPhase == null) {
+    return reply.code(409).send({ error: "No phase awaiting review." });
+  }
+  const { findStaging, getStagingDiff } = await import("./staging");
+  const session = await findStaging(run.workspacePath, join(config.dataDir, "staging"), run.id, run.pendingPhase);
+  if (!session) return reply.code(409).send({ error: "Staging session missing." });
+  const files = await getStagingDiff(session);
+  return { runId: run.id, phaseIndex: run.pendingPhase, files };
+});
+
 // Yeni proje klasörü oluşturur (workspaceDir altında, isimden türetilmiş benzersiz ad).
 app.post<{ Body: { name?: string } }>("/api/projects/create", async (request, _reply) => {
   const name = (request.body.name ?? "").trim();
