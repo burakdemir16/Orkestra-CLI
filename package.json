@@ -1,6 +1,6 @@
 {
   "name": "orkestra-cli",
-  "version": "0.2.9",
+  "version": "0.2.10",
   "type": "module",
   "description": "Local-first AI agent studio that orchestrates Claude Code, OpenAI Codex and Antigravity/Gemini CLIs from one panel.",
   "license": "Apache-2.0",
