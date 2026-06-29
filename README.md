@@ -237,6 +237,27 @@ ORKESTRA_AGENT_TIMEOUT_SECONDS=1800
 
 > 💡 **Performance tip:** keep `ORKESTRA_WORKSPACE_DIR` **outside a cloud-synced folder** (e.g. OneDrive). Cloud sync makes Git operations on large workspaces noticeably slower.
 
+### API provider agents
+
+Orkestra is CLI-first, but you can also add `.env`-configured API agents. They appear in the Agents list as `api:<id>` commands and can participate in planning, review, fixer, or custom roles.
+
+```env
+ORKESTRA_API_PROVIDERS=openrouter-planner,ollama-reviewer
+
+ORKESTRA_API_PROVIDER_OPENROUTER_PLANNER_PROVIDER=openrouter
+ORKESTRA_API_PROVIDER_OPENROUTER_PLANNER_NAME=OpenRouter Planner
+ORKESTRA_API_PROVIDER_OPENROUTER_PLANNER_ROLE=planner
+ORKESTRA_API_PROVIDER_OPENROUTER_PLANNER_MODEL=openai/gpt-4o-mini
+ORKESTRA_API_PROVIDER_OPENROUTER_PLANNER_API_KEY=your-openrouter-key
+
+ORKESTRA_API_PROVIDER_OLLAMA_REVIEWER_PROVIDER=ollama
+ORKESTRA_API_PROVIDER_OLLAMA_REVIEWER_ROLE=reviewer
+ORKESTRA_API_PROVIDER_OLLAMA_REVIEWER_MODEL=llama3.1
+ORKESTRA_API_PROVIDER_OLLAMA_REVIEWER_API_BASE=http://127.0.0.1:11434
+```
+
+Provider shortcuts cover native OpenAI, Anthropic, Gemini, Azure OpenAI, and Ollama plus OpenAI-compatible gateways used by Continue-style setups: OpenRouter, Mistral, Groq, Together, DeepSeek, xAI, Fireworks, Cerebras, Cohere, SambaNova, Novita, Moonshot, SiliconFlow, Tensorix, Hugging Face router/endpoints, LM Studio, Inception, and custom `openai-compatible` base URLs.
+
 ---
 
 ## 🧩 Agent Command Mappings (Headless Parameters)

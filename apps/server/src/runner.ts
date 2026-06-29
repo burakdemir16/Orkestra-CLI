@@ -6,6 +6,7 @@ import { interpolateArgs } from "./template";
 import { GitService } from "./git";
 import type { Store } from "./db";
 import type { EventHub } from "./events";
+import { getApiProviderConfig, runApiProvider } from "./apiProviders";
 
 // Ajan başına yürütme zaman aşımı (saniye). Gerçek kodlama görevleri 5 dk'yı kolayca aşar;
 // varsayılan 30 dk. ORKESTRA_AGENT_TIMEOUT_SECONDS ile değiştirilebilir.
@@ -453,6 +454,10 @@ export class Runner {
       return this.runDryAgent(agent, run, transcript);
     }
 
+    if (agent.command.startsWith("api:")) {
+      return this.runApiAgent(agent, run, transcript, notes, opts);
+    }
+
     const cleanEnv = { ...process.env };
     if (agent.command === "claude") {
       for (const key of Object.keys(cleanEnv)) {
@@ -578,6 +583,37 @@ export class Runner {
     this.store.setAgentStatus(agent.id, "available");
     this.emit(run.id, "completed", `${agent.name} completed.`, agent.id);
     return output;
+  }
+
+  private async runApiAgent(agent: Agent, run: Run, transcript: string, notes: string[] = [], opts?: { promptText?: string }) {
+    const config = getApiProviderConfig(agent.command);
+    if (!config) throw new Error(`API provider not configured for ${agent.command}.`);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), agent.timeoutSeconds * 1000);
+    let promptText = opts?.promptText ?? buildAgentPrompt(run.prompt, agent, transcript, notes);
+    if (this.githubToken) {
+      promptText += "\n\n[GitHub bağlı: API ajanı doğrudan git komutu çalıştıramaz; uygulanacak değişiklikleri açıkça tarif et.]";
+    }
+    try {
+      const output = await runApiProvider(config, promptText, controller.signal);
+      const clean = output.trim() || "(no output)";
+      this.emit(run.id, "stdout", clean, agent.id, clean);
+      this.checkLimit(agent, run.id, clean);
+      const current = this.store.getAgent(agent.id);
+      if (current?.status !== "limited") this.store.setAgentStatus(agent.id, "available");
+      this.emit(run.id, "completed", `${agent.name} completed.`, agent.id);
+      return clean;
+    } catch (error) {
+      const message = error instanceof Error && error.name === "AbortError"
+        ? `${agent.name} timed out after ${agent.timeoutSeconds}s.`
+        : error instanceof Error ? error.message : String(error);
+      this.checkLimit(agent, run.id, message);
+      const current = this.store.getAgent(agent.id);
+      if (current?.status !== "limited") this.store.setAgentStatus(agent.id, "available");
+      throw new Error(message);
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   private checkLimit(agent: Agent, runId: string, text: string) {
