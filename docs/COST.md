@@ -49,7 +49,7 @@ xychart-beta
     bar [218, 165, 116, 20]
 ```
 
-The same month that bills **$116–$1,089** on a metered API stays inside a **$20–$250 flat ceiling** on a subscription. And because API cost scales linearly with usage while the subscription is flat, **the more you code, the wider the gap** — there is a breakeven point (≈4M tokens/mo vs a $20 plan at a blended ~$5/1M) beyond which the API is always more expensive, and heavy coding is far past it.
+Those subscription prices are **per provider**, not the total for all three. To genuinely run **all three** you stack plans: at the entry tier that is **≈$40–60/mo** (two $20 plans + Gemini's free tier), rising to a few hundred a month if every provider sits on its heaviest tier. Either way it stays **flat and capped**, while the same month bills **$116–$1,089** on a metered API. And because API cost scales linearly with usage while a subscription is flat, **the more you code, the wider the gap** — there is a breakeven point (≈4M tokens/mo vs a $20 plan at a blended ~$5/1M) beyond which the API is always more expensive, and heavy coding is far past it.
 
 ## Honest caveats (so the comparison stands up)
 

@@ -153,7 +153,7 @@ For the same heavy coding month (**≈46M tokens** = 39.6M in + 6.6M out), at pu
 | OpenAI | ≈ **$165/mo** | $20 (Plus) → $200 (Pro) |
 | Gemini | ≈ **$116/mo** | $20 (AI Pro) → ~$250 (Ultra) |
 
-The same month that bills **$116–$1,089** on an API stays within a **$20–$250 flat ceiling** on a subscription — and the more you code, the wider the gap. Orkestra's **multi-CLI + fallback chain** pools several subscriptions' quotas, so heavy workloads run at flat cost.
+Each price above is **per provider** and flat. Note Claude Code requires a paid plan (Pro $20, with lower limits; Max $100–200 for heavy use); Codex is on ChatGPT Plus ($20); Gemini/Antigravity has a free tier. So running **all three together** means stacking entry plans — realistically **≈$40–60/mo** at the low end, up to a few hundred at the heaviest tiers. That is still flat and capped, versus the **$116–$1,089** the same month bills on metered APIs — and the more you code, the wider the gap. Orkestra's **multi-CLI + fallback chain** pools these subscriptions' quotas so heavy workloads run at flat cost.
 
 📊 **Full methodology, formula, sources and caveats → [docs/COST.md](docs/COST.md)** (every number is public and reproducible).
 
