@@ -469,6 +469,18 @@ export class Runner {
     return true;
   }
 
+  /**
+   * Stop every active run. Used by the SIGINT/SIGTERM shutdown path so the
+   * process doesn't leak agent children when dev restarts (or a Mac/Win
+   * user hits Ctrl-C in the terminal).
+   * Returns the number of runs that were actively running.
+   */
+  stopAll(): number {
+    const ids = [...this.controls.keys()];
+    for (const id of ids) this.stop(id);
+    return ids.length;
+  }
+
   private emit(runId: string, type: RunEventType, message: string, agentId?: string | null, rawOutput?: string) {
     const event = this.store.addEvent({
       runId,
