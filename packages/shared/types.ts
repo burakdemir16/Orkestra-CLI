@@ -165,7 +165,7 @@ export interface ChatResponse {
 }
 
 export interface UsageWindow {
-  label: string;        // "5 saat" | "Haftalık"
+  label: string;        // "5h" | "weekly"
   usedPercent: number;  // 0-100
   resetsAt?: string;    // ISO
 }
