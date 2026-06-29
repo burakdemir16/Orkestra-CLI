@@ -2,6 +2,7 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Agent, AgentRole, AgentStatus, Run, RunEvent } from "../../../packages/shared/types";
 import type { AppConfig } from "./config";
+import { loadApiProviderAgents } from "./apiProviders";
 
 // Derlemesiz, native-bağımlılıksız depo: veriyi bellekte tutar, tek JSON dosyasına yazar.
 // (Eski better-sqlite3 yerine — böylece her Node sürümünde, Python/build-tools olmadan kurulur.)
@@ -123,6 +124,11 @@ export class Store {
 
     for (const agent of defaults) {
       if (!this.getAgent(agent.id)) this.saveAgent(agent);
+    }
+
+    for (const agent of loadApiProviderAgents()) {
+      const existing = this.getAgent(agent.id);
+      this.saveAgent({ ...agent, status: existing?.status ?? agent.status, lastLimitedAt: existing?.lastLimitedAt ?? null });
     }
   }
 

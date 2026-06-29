@@ -24,6 +24,7 @@ import { GitService } from "./git";
 import { GitHubStore, getUser, createRepo, createPr, parseGitHubRemote, deviceStart, devicePoll } from "./github";
 import { linuxFolderPicker } from "./folder-picker";
 import { PreviewManager, detectProjectType } from "./preview";
+import { listKnownApiProviderIds, loadApiProviderConfigs } from "./apiProviders";
 import {
   analyzeDebate,
   detectPipelineIntent,
@@ -460,6 +461,19 @@ app.post<{ Params: { agent: "claude" | "codex" | "antigravity" } }>("/api/cli/:a
 });
 
 app.get("/api/agents", async () => store.listAgents());
+
+app.get("/api/api-providers", async () => ({
+  knownProviders: listKnownApiProviderIds(),
+  configured: loadApiProviderConfigs().map((provider) => ({
+    id: provider.id,
+    name: provider.name,
+    provider: provider.kind,
+    role: provider.role,
+    model: provider.model,
+    enabled: provider.enabled,
+    hasApiKey: Boolean(provider.apiKey)
+  }))
+}));
 
 app.post<{ Body: SaveAgentRequest }>("/api/agents", async (request) => {
   const agent: Agent = {
