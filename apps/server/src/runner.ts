@@ -20,6 +20,14 @@ function runLang(text: string): "en" | "tr" {
   return /[çğıİöşü]/i.test(text) || /\b(ve|bir|için|bu|şu|ben|sen|yap|oluştur|merhaba|nasıl|değil|var|yok|lütfen|site|proje|kod|yaz|selam)\b/.test(t) ? "tr" : "en";
 }
 
+// 429 / "rate limit" / "too many requests" = GEÇİCİ tıkanma (ani paralel yığılma). Buna karşılık
+// quota/billing/exhausted = KALICI kota. Geçici olanlar retry edilir, ajan "limited" sayılmaz.
+function isTransientRateLimit(message: string): boolean {
+  const m = (message || "").toLowerCase();
+  if (/quota|insufficient_quota|billing|exceeded your current|exhausted|out of credits/.test(m)) return false;
+  return /\b429\b|rate[ _-]?limit|too many requests|overloaded|temporarily/.test(m);
+}
+
 // agy çalışmadan ÖNCE workspace'i settings.json'daki trustedWorkspaces'e ekler →
 // agy "Do you trust this folder?" sormadan headless çalışır (interaktif onay gerekmez).
 export function ensureAgyTrusted(workspacePath: string) {
@@ -606,19 +614,36 @@ export class Runner {
   }
 
   private async runWithFallback(agent: Agent, run: Run, transcript: string, notes: string[] = [], opts?: { cwd?: string }): Promise<{ agent: Agent; output: string }> {
-    try {
-      return { agent, output: await this.runAgent(agent, run, transcript, notes, opts ? { cwd: opts.cwd } : undefined) };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.emit(run.id, "failed", message, agent.id);
-      for (const fallbackId of agent.fallbackAgentIds) {
-        const fallback = this.store.getAgent(fallbackId);
-        if (!fallback || !fallback.enabled || fallback.status === "limited") continue;
-        this.emit(run.id, "fallback_used", `${agent.name} failed. Using ${fallback.name}.`, fallback.id);
-        return { agent: fallback, output: await this.runAgent(fallback, run, transcript, notes, opts ? { cwd: opts.cwd } : undefined) };
+    // Geçici 429/hız limiti → kısa beklemeyle 2 kez yeniden dene (paralel yığılmada toparlar).
+    const maxRetries = 2;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return { agent, output: await this.runAgent(agent, run, transcript, notes, opts ? { cwd: opts.cwd } : undefined) };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (attempt < maxRetries && isTransientRateLimit(message)) {
+          const waitMs = 4000 * (attempt + 1);
+          this.store.setAgentStatus(agent.id, "available"); // kalıcı limit değil
+          this.emit(run.id, "agent_step", `⏳ ${agent.name}: 429 — ${waitMs / 1000}s sonra tekrar deneniyor…`, agent.id);
+          await new Promise((r) => setTimeout(r, waitMs));
+          continue;
+        }
+        return this.fallbackAfterError(agent, run, transcript, notes, opts, message);
       }
-      throw error;
     }
+    // Buraya normalde ulaşılmaz (döngü ya döner ya fırlatır).
+    return this.fallbackAfterError(agent, run, transcript, notes, opts, "exhausted retries");
+  }
+
+  private async fallbackAfterError(agent: Agent, run: Run, transcript: string, notes: string[], opts: { cwd?: string } | undefined, message: string): Promise<{ agent: Agent; output: string }> {
+    this.emit(run.id, "failed", message, agent.id);
+    for (const fallbackId of agent.fallbackAgentIds) {
+      const fallback = this.store.getAgent(fallbackId);
+      if (!fallback || !fallback.enabled || fallback.status === "limited") continue;
+      this.emit(run.id, "fallback_used", `${agent.name} failed. Using ${fallback.name}.`, fallback.id);
+      return { agent: fallback, output: await this.runAgent(fallback, run, transcript, notes, opts ? { cwd: opts.cwd } : undefined) };
+    }
+    throw new Error(message);
   }
 
   private runAgent(agent: Agent, run: Run, transcript: string, notes: string[] = [], opts?: { cwd?: string; promptText?: string }) {
@@ -832,6 +857,12 @@ export class Runner {
     const lower = text.toLowerCase();
     const matched = agent.limitPatterns.find((pattern) => lower.includes(pattern.toLowerCase()));
     if (!matched) return;
+    // Geçici hız limiti (429 / rate limit) KALICI kota değildir — paralel ekip çalışmasında
+    // ani yığılmadan olur. Ajanı "limited" işaretleme; runWithFallback kısa beklemeyle retry eder.
+    if (isTransientRateLimit(text)) {
+      this.emit(runId, "agent_step", `⏳ ${agent.name}: geçici hız limiti (${matched}) — kota değil.`, agent.id);
+      return;
+    }
     const now = new Date().toISOString();
     this.store.setAgentStatus(agent.id, "limited", now);
     this.emit(runId, "limit_detected", `${agent.name} limit detected: ${matched}`, agent.id, text);
