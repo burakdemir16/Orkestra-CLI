@@ -227,6 +227,47 @@ async function runOllama(config: ApiProviderConfig, prompt: string, signal?: Abo
   return json?.message?.content?.trim() || "";
 }
 
+// Sağlayıcının API'sinden kullanılabilir model id'lerini çeker (kullanıcı elle id yazmasın).
+// Anahtar + (varsa) base yeter; her sağlayıcının "modelleri listele" ucu farklı.
+export async function listProviderModels(providerId: string, apiKey?: string, apiBase?: string): Promise<string[]> {
+  const defaults = providerDefaults[(providerId || "").toLowerCase()] || providerDefaults["openai"];
+  const base = trimSlash(apiBase || defaults.apiBase || "");
+  if (!base) throw new Error("API base gerekli.");
+  const kind = defaults.kind;
+  let json: any;
+  if (kind === "gemini") {
+    json = await getJson(`${base}/models?key=${encodeURIComponent(apiKey || "")}`, {});
+    return uniqStrings((json?.models || []).map((m: { name?: string }) => String(m.name || "").replace(/^models\//, "")));
+  }
+  if (kind === "ollama") {
+    json = await getJson(`${base}/api/tags`, {});
+    return uniqStrings((json?.models || []).map((m: { name?: string; model?: string }) => String(m.name || m.model || "")));
+  }
+  if (kind === "anthropic") {
+    json = await getJson(`${base}/models`, { "x-api-key": apiKey || "", "anthropic-version": "2023-06-01" });
+    return uniqStrings((json?.data || []).map((m: { id?: string }) => String(m.id || "")));
+  }
+  // openai / azure / openai-compatible (OpenRouter, Groq, Mistral…)
+  json = await getJson(`${base}/models`, apiKey ? { authorization: `Bearer ${apiKey}` } : {});
+  return uniqStrings((json?.data || json?.models || []).map((m: { id?: string; name?: string }) => String(m.id || m.name || "")));
+}
+
+function uniqStrings(arr: string[]): string[] {
+  return [...new Set(arr.filter(Boolean))].sort();
+}
+
+async function getJson(url: string, headers: Record<string, string>, signal?: AbortSignal) {
+  const res = await fetch(url, { method: "GET", headers, signal });
+  const text = await res.text();
+  let json: any;
+  try { json = text ? JSON.parse(text) : {}; } catch { json = { raw: text }; }
+  if (!res.ok) {
+    const message = json?.error?.message || json?.message || text || `${res.status} ${res.statusText}`;
+    throw new Error(message);
+  }
+  return json;
+}
+
 async function postJson(url: string, headers: Record<string, string>, body: unknown, signal?: AbortSignal) {
   const res = await fetch(url, { method: "POST", headers, body: JSON.stringify(body), signal });
   const text = await res.text();

@@ -24,7 +24,7 @@ import { GitService } from "./git";
 import { GitHubStore, getUser, createRepo, createPr, parseGitHubRemote, deviceStart, devicePoll } from "./github";
 import { linuxFolderPicker } from "./folder-picker";
 import { PreviewManager, detectProjectType } from "./preview";
-import { listKnownApiProviderIds, loadApiProviderConfigs, agentFromConfig, configFromInput, apiProviderCatalog, type ApiProviderInput } from "./apiProviders";
+import { listKnownApiProviderIds, loadApiProviderConfigs, agentFromConfig, configFromInput, apiProviderCatalog, listProviderModels, type ApiProviderInput } from "./apiProviders";
 import { ApiProviderStore } from "./apiProviderStore";
 import {
   analyzeDebate,
@@ -482,6 +482,17 @@ app.get("/api/api-providers", async () => ({
   // UI'dan eklenen (düzenlenebilir/silinebilir) sağlayıcılar — anahtar dönmez
   configured: apiProviderStore.listPublic().map((p) => ({ ...p, source: "ui" as const }))
 }));
+
+// Bir sağlayıcının kullanılabilir modellerini (API key ile) listeler → kullanıcı elle id yazmasın.
+app.post<{ Body: { provider?: string; apiKey?: string; apiBase?: string } }>("/api/api-providers/models", async (request, reply) => {
+  if (!request.body?.provider) return reply.code(400).send({ error: "provider gerekli." });
+  try {
+    const models = await listProviderModels(request.body.provider, request.body.apiKey, request.body.apiBase);
+    return { models };
+  } catch (error) {
+    return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
 
 // UI'dan API sağlayıcı ekle/güncelle → şifreli sakla + ajan listesine kaydet.
 app.post<{ Body: ApiProviderInput }>("/api/api-providers", async (request, reply) => {

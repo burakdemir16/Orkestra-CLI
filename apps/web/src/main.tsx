@@ -4519,13 +4519,15 @@ type ApiProvidersResponse = {
 
 function ApiProvidersSection({ language }: { language: Language }) {
   const tt = language === "tr"
-    ? { title: "API Sağlayıcılar", add: "Ekle", hint: "CLI aboneliklerinin yanına API anahtarıyla sağlayıcı ekle (OpenRouter, Ollama, OpenAI-uyumlu). Anahtar şifreli saklanır.", empty: "Henüz API sağlayıcı yok. Eklemek için + tuşuna bas.", model: "Model (örn. openai/gpt-4o-mini)", apiKey: "API anahtarı", apiBaseOptional: "API Base (opsiyonel)", nameOptional: "İsim (opsiyonel)", remove: "Sil", cancel: "Vazgeç", save: "Kaydet", modelRequired: "Model gerekli.", keyRequired: "Bu sağlayıcı için API anahtarı gerekli.", envNote: ".env ile tanımlı (salt-okunur)" }
-    : { title: "API Providers", add: "Add", hint: "Add API-key providers (OpenRouter, Ollama, OpenAI-compatible) alongside your CLI subscriptions. Keys are stored encrypted.", empty: "No API providers yet. Press + to add one.", model: "Model (e.g. openai/gpt-4o-mini)", apiKey: "API key", apiBaseOptional: "API Base (optional)", nameOptional: "Name (optional)", remove: "Remove", cancel: "Cancel", save: "Save", modelRequired: "Model is required.", keyRequired: "This provider needs an API key.", envNote: "defined in .env (read-only)" };
+    ? { title: "API Sağlayıcılar", add: "Ekle", hint: "CLI aboneliklerinin yanına API anahtarıyla sağlayıcı ekle (OpenRouter, Ollama, OpenAI-uyumlu). Anahtar şifreli saklanır.", empty: "Henüz API sağlayıcı yok. Eklemek için + tuşuna bas.", model: "Model (örn. openai/gpt-4o-mini)", apiKey: "API anahtarı", apiBaseOptional: "API Base (opsiyonel)", nameOptional: "İsim (opsiyonel)", remove: "Sil", cancel: "Vazgeç", save: "Kaydet", modelRequired: "Model gerekli.", keyRequired: "Bu sağlayıcı için API anahtarı gerekli.", envNote: ".env ile tanımlı (salt-okunur)", loadModels: "Modelleri getir", loadingModels: "Yükleniyor…", noModels: "Model bulunamadı — anahtarı/base'i kontrol et veya modeli elle yaz.", pickModel: "Model seç…" }
+    : { title: "API Providers", add: "Add", hint: "Add API-key providers (OpenRouter, Ollama, OpenAI-compatible) alongside your CLI subscriptions. Keys are stored encrypted.", empty: "No API providers yet. Press + to add one.", model: "Model (e.g. openai/gpt-4o-mini)", apiKey: "API key", apiBaseOptional: "API Base (optional)", nameOptional: "Name (optional)", remove: "Remove", cancel: "Cancel", save: "Save", modelRequired: "Model is required.", keyRequired: "This provider needs an API key.", envNote: "defined in .env (read-only)", loadModels: "Load models", loadingModels: "Loading…", noModels: "No models found — check the key/base or type the model manually.", pickModel: "Pick a model…" };
   const [data, setData] = useState<ApiProvidersResponse | null>(null);
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [form, setForm] = useState({ provider: "openrouter", model: "", role: "builder", name: "", apiKey: "", apiBase: "" });
+  const [models, setModels] = useState<string[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
 
   const load = useCallback(async () => {
     try { setData(await api.get<ApiProvidersResponse>("/api/api-providers")); } catch { /* yoksay */ }
@@ -4550,6 +4552,7 @@ function ApiProvidersSection({ language }: { language: Language }) {
         apiBase: form.apiBase.trim() || undefined
       });
       setForm({ provider: "openrouter", model: "", role: "builder", name: "", apiKey: "", apiBase: "" });
+      setModels([]);
       setAdding(false);
       await load();
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }
@@ -4562,6 +4565,26 @@ function ApiProvidersSection({ language }: { language: Language }) {
     catch { /* yoksay */ }
     finally { setBusy(false); }
   };
+
+  // API key (varsa) ile sağlayıcının modellerini çek → kullanıcı listeden seçsin.
+  const loadModels = async () => {
+    setErr("");
+    setLoadingModels(true);
+    try {
+      const r = await api.post<{ models: string[] }>("/api/api-providers/models", {
+        provider: form.provider,
+        apiKey: form.apiKey.trim() || undefined,
+        apiBase: form.apiBase.trim() || undefined
+      });
+      const list = r.models ?? [];
+      setModels(list);
+      if (!list.length) setErr(tt.noModels);
+      else if (!form.model) setForm((f) => ({ ...f, model: list[0] }));
+    } catch (e) { setErr(e instanceof Error ? e.message : String(e)); setModels([]); }
+    finally { setLoadingModels(false); }
+  };
+
+  const pickProvider = (provider: string) => { setForm((f) => ({ ...f, provider, model: "" })); setModels([]); setErr(""); };
 
   return (
     <div className="settingsSection">
@@ -4585,19 +4608,29 @@ function ApiProvidersSection({ language }: { language: Language }) {
       ))}
       {adding && (
         <div className="apiProviderForm">
-          <select value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value })}>
+          <select value={form.provider} onChange={(e) => pickProvider(e.target.value)}>
             {(data?.catalog ?? []).map((c) => <option key={c.id} value={c.id}>{c.id}</option>)}
-          </select>
-          <input placeholder={`${language === "tr" ? "Model (tam id, örn." : "Model (exact id, e.g."} ${modelExample})`} value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} />
-          <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
-            {["planner", "builder", "reviewer", "fixer", "custom"].map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
           {needsKey && <input type="password" placeholder={tt.apiKey} value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} autoComplete="off" />}
           <input placeholder={tt.apiBaseOptional} value={form.apiBase} onChange={(e) => setForm({ ...form, apiBase: e.target.value })} />
+          <button className="ghostButton" disabled={loadingModels || (needsKey && !form.apiKey.trim())} onClick={() => void loadModels()}>
+            {loadingModels ? tt.loadingModels : tt.loadModels}
+          </button>
+          {models.length > 0 ? (
+            <select value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })}>
+              <option value="">{tt.pickModel}</option>
+              {models.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+          ) : (
+            <input placeholder={`${language === "tr" ? "Model (tam id, örn." : "Model (exact id, e.g."} ${modelExample})`} value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} />
+          )}
+          <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
+            {["planner", "builder", "reviewer", "fixer", "custom"].map((r) => <option key={r} value={r}>{r}</option>)}
+          </select>
           <input placeholder={tt.nameOptional} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           {err && <p className="apiProviderErr">{err}</p>}
           <div className="apiProviderFormActions">
-            <button className="ghostButton" onClick={() => { setAdding(false); setErr(""); }}>{tt.cancel}</button>
+            <button className="ghostButton" onClick={() => { setAdding(false); setErr(""); setModels([]); }}>{tt.cancel}</button>
             <button className="primaryButton" disabled={busy} onClick={() => void submit()}>{tt.save}</button>
           </div>
         </div>
