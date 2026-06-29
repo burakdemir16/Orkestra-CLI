@@ -155,6 +155,8 @@ For the same heavy coding month (**≈46M tokens** = 39.6M in + 6.6M out), at pu
 
 Each price above is **per provider** and flat. Note Claude Code requires a paid plan (Pro $20, with lower limits; Max $100–200 for heavy use); Codex is on ChatGPT Plus ($20); Gemini/Antigravity has a free tier. So running **all three together** means stacking entry plans — realistically **≈$40–60/mo** at the low end, up to a few hundred at the heaviest tiers. That is still flat and capped, versus the **$116–$1,089** the same month bills on metered APIs — and the more you code, the wider the gap. Orkestra's **multi-CLI + fallback chain** pools these subscriptions' quotas so heavy workloads run at flat cost.
 
+And you can often go **below** that floor. A single subscription is already enough to get value: **Antigravity alone bundles several frontier models** under a genuinely generous free tier, and Orkestra runs them as **multiple agents that share one workspace and stay aware of each other**, with an operator model synthesizing their work — **no extra API key, no per-token spend**. So multi-agent, operator-style collaboration is reachable even from one (often free) plan; stacking paid plans on top only widens the gap versus metered APIs.
+
 📊 **Full methodology, formula, sources and caveats → [docs/COST.md](docs/COST.md)** (every number is public and reproducible).
 
 ---

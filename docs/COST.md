@@ -56,6 +56,7 @@ Those subscription prices are **per provider**, not the total for all three. To 
 - Subscriptions have **fair-use quotas**; a $20 tier may not sustain the heaviest months, so a higher flat tier ($100–250) may be needed. **It is still flat, predictable, and below flagship API cost** for the same work.
 - API gives no rate ceiling but you pay for every token; subscriptions trade a quota for a fixed price.
 - **This is where Orkestra helps most:** it combines **multiple subscriptions + a fallback chain**, pooling quotas so heavy workloads run at flat cost — no per-token metering. When one CLI hits its limit, the next picks up where it left off.
+- **The floor can be lower than the table suggests.** A single subscription already delivers value: **Antigravity alone bundles several frontier models** under a generous free tier, and Orkestra runs them as multiple co-aware agents in one shared workspace with an operator synthesizing the result — **no extra API key, no per-token spend**. Multi-agent collaboration is reachable even from one (often free) plan; paid plans on top only widen the gap versus metered APIs.
 
 ## Verify it yourself
 
