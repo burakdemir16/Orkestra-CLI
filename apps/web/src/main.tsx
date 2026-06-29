@@ -50,6 +50,7 @@ import {
   RotateCcw,
   Search,
   Send,
+  ShieldCheck,
   Swords,
   Trash2,
   Users,
@@ -1368,6 +1369,13 @@ function App() {
   const [runs, setRuns] = useState<Run[]>([]);
   const [activeRun, setActiveRun] = useState<Run | null>(null);
   const [events, setEvents] = useState<RunEvent[]>([]);
+  // Pre-write diff approval: açıksa, ajanlar staging worktree'de çalışır ve workspace'e yazmadan önce diff onayı ister.
+  const [preWriteApproval, setPreWriteApproval] = useState<boolean>(() => {
+    try { return localStorage.getItem("orkestra.preWriteApproval") === "true"; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("orkestra.preWriteApproval", preWriteApproval ? "true" : "false"); } catch { /* yok say */ }
+  }, [preWriteApproval]);
   // Sürekli proje: aktif projenin kalıcı workspace yolu (yeni promptlar aynı projede devam eder).
   const [projectWorkspace, setProjectWorkspace] = useState<string | null>(
     () => localStorage.getItem("orkestra.projectWorkspace") || null
@@ -2703,7 +2711,8 @@ function App() {
     // Aktif bir proje varsa aynı workspace'te devam et (sürekli geliştirme).
     const run = await api.post<Run>("/api/runs", {
       prompt,
-      workspacePath: projectWorkspace ?? undefined
+      workspacePath: projectWorkspace ?? undefined,
+      preWriteApproval,
     });
     setActiveRun(run);
     setProjectWorkspace(run.workspacePath);
@@ -2747,7 +2756,8 @@ function App() {
         const run = await api.post<Run>("/api/runs", {
           prompt: goal,
           tasks: wireTeamDependencies(seeded),
-          workspacePath: projectWorkspace ?? undefined
+          workspacePath: projectWorkspace ?? undefined,
+          preWriteApproval,
         });
         setActiveRun(run);
         setProjectWorkspace(run.workspacePath);
@@ -2790,7 +2800,8 @@ function App() {
     const run = await api.post<Run>("/api/runs", {
       prompt: goal,
       tasks: wireTeamDependencies(planTasks),
-      workspacePath: projectWorkspace ?? undefined
+      workspacePath: projectWorkspace ?? undefined,
+      preWriteApproval,
     });
     setActiveRun(run);
     setProjectWorkspace(run.workspacePath);
@@ -2891,7 +2902,8 @@ function App() {
     const run = await api.post<Run>("/api/runs", {
       prompt: goal || tasks[0].title,
       tasks,
-      workspacePath: projectWorkspace ?? undefined
+      workspacePath: projectWorkspace ?? undefined,
+      preWriteApproval,
     });
     setActiveRun(run);
     setProjectWorkspace(run.workspacePath);
@@ -2921,7 +2933,8 @@ function App() {
     const run = await api.post<Run>("/api/runs", {
       prompt,
       tasks,
-      workspacePath: projectWorkspace ?? undefined
+      workspacePath: projectWorkspace ?? undefined,
+      preWriteApproval,
     });
     setActiveRun(run);
     setProjectWorkspace(run.workspacePath);
@@ -3013,7 +3026,8 @@ function App() {
       const run = await api.post<Run>("/api/runs", {
         prompt: brief,
         tasks: [{ id: "task1", title: userMsgs[0].content.slice(0, 80) || "Görev", role: "builder", folder: "", dependsOn: [], cli: singleCli, model: selectedModel === "default" ? undefined : selectedModel }],
-        workspacePath: projectWorkspace ?? undefined
+        workspacePath: projectWorkspace ?? undefined,
+        preWriteApproval,
       });
       setActiveRun(run);
       setProjectWorkspace(run.workspacePath);
@@ -3230,6 +3244,16 @@ function App() {
         </button>
       </div>
       <div className="sidebarHeaderActions">
+        <button
+          className={`iconButton${preWriteApproval ? " active" : ""}`}
+          onClick={() => setPreWriteApproval((v) => !v)}
+          title={preWriteApproval
+            ? (language === "tr" ? "Önce-diff onayı AÇIK (kapat)" : "Pre-write review is ON (click to turn off)")
+            : (language === "tr" ? "Önce-diff onayı KAPALI (aç)" : "Pre-write review is OFF (click to turn on)")}
+          style={{ width: "32px", height: "32px", padding: 0 }}
+        >
+          <ShieldCheck size={16} />
+        </button>
         <button
           className="iconButton"
           onClick={() => setSettingsOpen(true)}
