@@ -483,13 +483,33 @@ export class Runner {
 
   private async execute(run: Run) {
     const transcript: string[] = [];
+    const en = runLang(run.prompt) === "en";
     this.store.updateRun(run.id, { status: "running", activeStep: "starting" });
     this.emit(run.id, "started", "Run started.");
+
+    // Pre-write diff approval: tüm rolleri bir tek staging worktree üzerinde koştur.
+    // Apply sonrası TRANSCRIPT.md workspace'e yazılır; discard sonrası yazılmaz.
+    let staging: StagingSession | null = null;
+    if (run.preWriteApproval) {
+      try {
+        staging = await createStaging(run.workspacePath, this.stagingRoot, run.id, 0);
+        this.store.updateRun(run.id, { pendingPhase: 0 });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.emit(run.id, "failed", en ? `Staging worktree failed: ${message}` : `Çalışma alanı hazırlanamadı: ${message}`);
+        this.store.updateRun(run.id, { status: "failed", activeStep: "failed", completedAt: new Date().toISOString(), summary: message });
+        this.controls.delete(run.id);
+        return;
+      }
+    }
 
     try {
       mkdirSync(run.workspacePath, { recursive: true });
       await GitService.ensureRepo(run.workspacePath); // proje kendi git deposu olsun (izolasyon)
-      writeFileSync(join(run.workspacePath, "PROMPT.md"), run.prompt, "utf8");
+      // PROMPT.md'yi staging'e yaz (workspace'e dokunma). Discard edilirse orijinal
+      // workspace saf kalır; apply sonrası staging merge'i zaten PROMPT.md'yi getirir.
+      const promptCwd = staging?.worktreePath ?? run.workspacePath;
+      writeFileSync(join(promptCwd, "PROMPT.md"), run.prompt, "utf8");
       this.emit(run.id, "file_created", "PROMPT.md", null, "PROMPT.md");
 
       const control = this.controls.get(run.id);
@@ -498,6 +518,8 @@ export class Runner {
           const enStop = runLang(run.prompt) === "en";
           this.store.updateRun(run.id, { status: "failed", activeStep: "stopped", completedAt: new Date().toISOString(), summary: enStop ? "Stopped by the user." : "Kullanıcı tarafından durduruldu." });
           this.emit(run.id, "failed", enStop ? "Run stopped by the user." : "Çalışma kullanıcı tarafından durduruldu.");
+          if (staging) await discardStaging(run.workspacePath, staging).catch(() => undefined);
+          this.store.updateRun(run.id, { pendingPhase: null });
           this.controls.delete(run.id);
           return;
         }
@@ -513,10 +535,31 @@ export class Runner {
 
         this.store.updateRun(run.id, { activeStep: `${role}: ${agent.name}` });
         this.emit(run.id, "agent_step", `${agent.name} handling ${role}.`, agent.id);
-        const result = await this.runWithFallback(agent, run, transcript.join("\n\n"), notes);
+        const result = await this.runWithFallback(agent, run, transcript.join("\n\n"), notes, { cwd: promptCwd });
         transcript.push(`## ${result.agent.name} (${result.agent.role})\n${result.output}`);
       }
-      this.controls.delete(run.id);
+
+      if (staging) {
+        // Apply/Discard kararı: TRANSCRIPT.md yazmadan önce bekle.
+        this.store.updateRun(run.id, { activeStep: "pending review" });
+        this.emit(run.id, "phase_pending_review", en ? "📝 Run complete. Review the pending diff and Apply or Discard." : "📝 Çalışma tamamlandı. Bekleyen değişikliği inceleyin, Uygula veya At.");
+        const decision = await new Promise<"approve" | "discard" | "stop">((resolveD) => {
+          if (!control) return resolveD("approve"); // sunucu yeniden başladıysa otomatik uygula
+          control.approve = () => resolveD("approve");
+          control.discard = () => resolveD("discard");
+        });
+        if (control) { control.approve = undefined; control.discard = undefined; }
+        if (decision === "discard" || control?.stop) {
+          await discardStaging(run.workspacePath, staging).catch(() => undefined);
+          this.store.updateRun(run.id, { pendingPhase: null });
+          this.store.updateRun(run.id, { status: "failed", activeStep: "discarded", completedAt: new Date().toISOString(), summary: en ? "Discarded by user." : "Kullanıcı tarafından atıldı." });
+          this.emit(run.id, "failed", en ? "🗑️ Discarded. Run aborted." : "🗑️ Atıldı. Çalışma iptal edildi.");
+          this.controls.delete(run.id);
+          return;
+        }
+        await applyStaging(run.workspacePath, staging);
+        this.store.updateRun(run.id, { pendingPhase: null });
+      }
 
       writeFileSync(join(run.workspacePath, "TRANSCRIPT.md"), transcript.join("\n\n"), "utf8");
       this.emit(run.id, "file_created", "TRANSCRIPT.md", null, "TRANSCRIPT.md");
@@ -547,9 +590,9 @@ export class Runner {
       .find((agent) => agent.enabled && agent.role === role && agent.status !== "limited");
   }
 
-  private async runWithFallback(agent: Agent, run: Run, transcript: string, notes: string[] = []): Promise<{ agent: Agent; output: string }> {
+  private async runWithFallback(agent: Agent, run: Run, transcript: string, notes: string[] = [], opts?: { cwd?: string }): Promise<{ agent: Agent; output: string }> {
     try {
-      return { agent, output: await this.runAgent(agent, run, transcript, notes) };
+      return { agent, output: await this.runAgent(agent, run, transcript, notes, opts ? { cwd: opts.cwd } : undefined) };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.emit(run.id, "failed", message, agent.id);
@@ -557,7 +600,7 @@ export class Runner {
         const fallback = this.store.getAgent(fallbackId);
         if (!fallback || !fallback.enabled || fallback.status === "limited") continue;
         this.emit(run.id, "fallback_used", `${agent.name} failed. Using ${fallback.name}.`, fallback.id);
-        return { agent: fallback, output: await this.runAgent(fallback, run, transcript, notes) };
+        return { agent: fallback, output: await this.runAgent(fallback, run, transcript, notes, opts ? { cwd: opts.cwd } : undefined) };
       }
       throw error;
     }
