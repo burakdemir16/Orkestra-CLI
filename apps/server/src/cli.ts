@@ -1308,18 +1308,20 @@ function formatHistory(history: ChatMessage[]) {
 }
 
 async function getFirstReadyPlanner(): Promise<PlannerId | undefined> {
-  try {
-    const claudeStatus = await getClaudeStatus();
-    if (claudeStatus.installed && claudeStatus.authenticated) return "claude";
-  } catch {}
-  try {
-    const codexStatus = await getCodexStatus();
-    if (codexStatus.installed && codexStatus.authenticated) return "codex";
-  } catch {}
-  try {
-    const agyStatus = await getAntigravityStatus();
-    if (agyStatus.installed && agyStatus.authenticated) return "antigravity";
-  } catch {}
+  // Best-effort: try each planner in order, fall through on failure.
+  // Errors are logged at debug level so silent failures stay debuggable.
+  for (const [name, get] of [
+    ["claude", getClaudeStatus] as const,
+    ["codex", getCodexStatus] as const,
+    ["antigravity", getAntigravityStatus] as const,
+  ]) {
+    try {
+      const s = await get();
+      if (s.installed && s.authenticated) return name;
+    } catch (err) {
+      console.debug(`[planner] ${name} status check failed:`, err instanceof Error ? err.message : err);
+    }
+  }
   return undefined;
 }
 
