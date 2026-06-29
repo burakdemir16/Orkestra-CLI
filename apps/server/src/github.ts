@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { libsecretStore, LIBSECRET_PREFIX } from "./libsecret-token";
 
 // GitHub erişimi — `gh` CLI'ye bağımlılık YOK. Her şey:
 //   - kimlik: kullanıcının yapıştırdığı Personal Access Token (PAT)
@@ -67,7 +68,15 @@ export class GitHubStore {
   }
 
   // Token'ı DPAPI (CurrentUser) ile şifreleyip diske yazar. Token komut satırında değil, env'de.
+  // Linux: libsecret (secret-tool) tercih edilir; yoksa base64'e düşülür (makineye bağlı değil, ama az güvenli).
   async setToken(token: string): Promise<void> {
+    if (process.platform === "linux") {
+      const libsec = libsecretStore(this.file);
+      if (libsec.available()) {
+        await libsec.set(token);
+        return;
+      }
+    }
     if (process.platform === "win32") {
       const { out, code } = await runPwsh(
         "$s=ConvertTo-SecureString -String $env:ORK_TOKEN -AsPlainText -Force; ConvertFrom-SecureString -SecureString $s",
@@ -85,6 +94,10 @@ export class GitHubStore {
   async getToken(): Promise<string | null> {
     if (!existsSync(this.file)) return null;
     const raw = readFileSync(this.file, "utf8").trim();
+    if (raw.startsWith(LIBSECRET_PREFIX)) {
+      if (process.platform !== "linux") return null;
+      return libsecretStore(this.file).get();
+    }
     if (raw.startsWith("dpapi:")) {
       const enc = raw.slice(6);
       if (process.platform !== "win32") return null;
@@ -105,6 +118,13 @@ export class GitHubStore {
   }
 
   clear(): void {
+    // Linux: anahtar çekmecesindeki girişi de temizle.
+    if (process.platform === "linux" && existsSync(this.file)) {
+      const raw = readFileSync(this.file, "utf8").trim();
+      if (raw.startsWith(LIBSECRET_PREFIX)) {
+        void libsecretStore(this.file).clear();
+      }
+    }
     if (existsSync(this.file)) {
       try {
         unlinkSync(this.file);

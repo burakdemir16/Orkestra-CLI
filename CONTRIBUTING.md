@@ -59,10 +59,10 @@ npm test
 ## Good first issues / ideas
 
 - **Pre-write diff approval mode** — review and approve changes *before* agents write them (today review is post-write + git rollback).
-- **Cross-platform support** — macOS/Linux folder picker and token storage (currently Windows: native picker + DPAPI). Add keychain/libsecret equivalents.
+- **Cross-platform support** — Linux is now supported (PR #3: zenity/kdialog picker + libsecret token storage). macOS still needs: folder picker via osascript (#5) and Keychain token storage via `security` CLI (#6). Pickup needs a Mac to validate.
 - **More CLI adapters** — pluggable adapters for additional coding CLIs.
 - **More UI languages** beyond EN/TR.
-- **Tests** — extend coverage for `runner`, `git`, and `github` modules.
+- **Tests** — extend coverage for `runner`, `git`, and `github` modules. (see `test-suite` branch WIP)
 - **Per-project repo settings** — remember default branch / private flag per project.
 
 ## Reporting bugs
