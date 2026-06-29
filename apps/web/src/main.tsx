@@ -1428,6 +1428,7 @@ function App() {
     try {
       await api.post(`/api/runs/${activeRun.id}/apply`);
       setPendingFiles([]);
+      setActiveRun((cur) => (cur ? { ...cur, pendingPhase: null, activeStep: "running" } : cur));
       await refresh();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
@@ -1441,6 +1442,7 @@ function App() {
     try {
       await api.post(`/api/runs/${activeRun.id}/discard`);
       setPendingFiles([]);
+      setActiveRun((cur) => (cur ? { ...cur, pendingPhase: null } : cur));
       await refresh();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
@@ -2350,6 +2352,25 @@ function App() {
           data: { kind: "phase", view: "code", convoId: codeConvoIdRef.current, runId: event.runId },
           actions: [{ action: "phase-continue", title: text.phaseContinue }]
         });
+      }
+      // Pre-write onay: faz staging'de tamamlandı, kullanıcının Apply/Discard'ı bekleniyor.
+      // run'ı tazele → pendingPhase gelsin → diff paneli /pending'i açsın, Apply/Discard çıksın.
+      if (event.type === "phase_pending_review") {
+        setMessages((current) =>
+          current.some((m) => m.content === event.message)
+            ? current
+            : [...current, { id: crypto.randomUUID(), role: "assistant", planner: "system", modelLabel: "Orkestra", content: event.message, createdAt: new Date().toISOString() }]
+        );
+        void api.get<Run>(`/api/runs/${event.runId}`)
+          .then((r) => setActiveRun((cur) => (cur && cur.id === r.id ? { ...cur, pendingPhase: r.pendingPhase, status: r.status, activeStep: r.activeStep } : cur)))
+          .catch(() => {});
+        if (fresh) void showNotify({
+          title: text.notifPhaseTitle,
+          body: (event.message ?? "").replace(/\s+/g, " ").slice(0, 140),
+          tag: `pending-${event.runId}`,
+          data: { kind: "phase", view: "code", convoId: codeConvoIdRef.current, runId: event.runId }
+        });
+        return;
       }
       // ÖNEMLİ: ajan-bazlı completed/failed (agentId dolu) RUN'ı bitirmez — sadece o ajan bitti.
       // Run'ın gerçekten bittiği, agentId'siz (run-seviyesi) completed/failed olayıdır.
