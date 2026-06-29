@@ -32,11 +32,9 @@ import {
   generatePlan,
   clearLoginOverride,
   getCliStatuses,
-  installCli,
   logoutCli,
   runDebate,
   runPlannerChat,
-  startLoginCli,
   testCli
 } from "./cli";
 import type { Agent, ChatMessage, ChatParticipant, ChatRequest, CreateRunRequest, EffortLevel, SaveAgentRequest } from "../../../packages/shared/types";
@@ -44,7 +42,7 @@ import type { Agent, ChatMessage, ChatParticipant, ChatRequest, CreateRunRequest
 const config = getConfig();
 const store = new Store(config);
 const hub = new EventHub();
-const runner = new Runner(store, hub);
+const runner = new Runner(store, hub, { stagingRoot: join(config.dataDir, "staging") });
 const git = new GitService(process.cwd());
 const githubStore = new GitHubStore(config.dataDir);
 // Ajan git push/clone'u için token'ı bellekte runner'a ver (diske yazmadan).
@@ -414,43 +412,7 @@ app.post("/api/cli/:agent/login-window/close", async () => {
 //  - "Choose your color scheme" → Enter (varsayılan şema)
 //  - "Terms of Service" → "> Done" odakta olana dek aşağı in, sonra Enter (varsayılan onay kutusu zaten [x])
 //  - device-code/oauth URL'i çıkınca bırak (kullanıcı tarayıcı+kodu devralır)
-function autoDriveAgyOnboarding(terminalId: string) {
-  const session = terminalSessions.get(terminalId);
-  if (!session) return;
-  let acc = "";
-  let phase: "color" | "tos" | "done" = "color";
-  let last = 0;
-  let tosTries = 0;
-  const write = (d: string) => { try { session.process.write(d); } catch { /* yok say */ } };
-  const driver = session.process.onData((chunk) => {
-    acc = (acc + stripAnsi(chunk)).slice(-3000);
-    if (/Paste this code|accounts\.google\.com\/o\/oauth2|oauth2\/auth\?/i.test(acc)) {
-      try { driver.dispose(); } catch { /* yok say */ }
-      return;
-    }
-    const now = Date.now();
-    if (now - last < 450) return; // debounce
-    if (phase === "color" && /Choose your color scheme/i.test(acc)) {
-      last = now; phase = "tos"; acc = "";
-      setTimeout(() => write("\r"), 500); // varsayılan şemayı seç
-      return;
-    }
-    if (phase === "tos" && /Terms of Service|I agree to help improve/i.test(acc)) {
-      // Sadece SON kareyi incele (odak işareti "> Done" yalnız Done seçiliyken çıkar;
-      // seçili değilken "[Done]" görünür). Onay kutusuna asla Space/Enter göndermeyiz.
-      const frame = acc.slice(acc.lastIndexOf("Data Use"));
-      if (/>\s*Done/.test(frame)) {
-        last = now; phase = "done";
-        setTimeout(() => write("\r"), 250); // Done odakta → onayla (varsayılan [x] korunur)
-      } else if (tosTries < 8) {
-        last = now; tosTries++;
-        write("\x1b[B"); // aşağı: onay kutusu → Previous → Done (↑/↓ Navigate)
-      }
-    }
-  });
-  // Güvenlik: 90sn sonra sürücüyü bırak.
-  setTimeout(() => { try { driver.dispose(); } catch { /* yok say */ } }, 90_000);
-}
+// ponytail: dead code removed — the agy onboarding flow moved to a different mechanism.
 
 app.post<{ Params: { agent: "claude" | "codex" | "antigravity" } }>("/api/cli/:agent/logout", async (request) => {
   return logoutCli(request.params.agent);
@@ -574,7 +536,9 @@ app.post<{ Body: CreateRunRequest }>("/api/runs", async (request, reply) => {
     createdAt: new Date().toISOString(),
     completedAt: null,
     activeStep: "queued",
-    summary: null
+    summary: null,
+    preWriteApproval: request.body.preWriteApproval === true,
+    pendingPhase: null
   };
   store.createRun(run);
   const event = store.addEvent({
@@ -615,7 +579,7 @@ app.post<{ Params: { id: string }; Body: { note?: string } }>("/api/runs/:id/not
 // Çalışan run'ı durdur. Canlı kontrol varsa süreçleri öldürür; YOKSA (ör. sunucu yeniden
 // başlamış, kontrol kaybolmuş) yine de run'ı store'da durdurulmuş işaretler ve event yayar →
 // UI her durumda durur (sessizce takılı kalmaz).
-app.post<{ Params: { id: string } }>("/api/runs/:id/stop", async (request, reply) => {
+app.post<{ Params: { id: string } }>("/api/runs/:id/stop", async (request, _reply) => {
   const id = request.params.id;
   const killed = runner.stop(id);
   const run = store.getRun(id);
@@ -634,8 +598,36 @@ app.post<{ Params: { id: string } }>("/api/runs/:id/resume", async (request, rep
   return { ok: true };
 });
 
+// Pre-write diff approval: onayla. Sadece canlı bekleyen phase_pending_review varsa işler.
+app.post<{ Params: { id: string } }>("/api/runs/:id/apply", async (request, reply) => {
+  const ok = runner.applyPendingPhase(request.params.id);
+  if (!ok) return reply.code(409).send({ error: "Run is not awaiting pre-write review." });
+  return { ok: true };
+});
+
+// Pre-write diff approval: at. Yalnızca canlı bekleyen review varsa işler.
+app.post<{ Params: { id: string } }>("/api/runs/:id/discard", async (request, reply) => {
+  const ok = runner.discardPendingPhase(request.params.id);
+  if (!ok) return reply.code(409).send({ error: "Run is not awaiting pre-write review." });
+  return { ok: true };
+});
+
+// Pre-write diff approval: bekleyen fazın staging diff'ini döner (UI'ın göstereceği aynı DiffFile[]).
+app.get<{ Params: { id: string } }>("/api/runs/:id/pending", async (request, reply) => {
+  const run = store.getRun(request.params.id);
+  if (!run) return reply.code(404).send({ error: "Run not found" });
+  if (run.pendingPhase == null) {
+    return reply.code(409).send({ error: "No phase awaiting review." });
+  }
+  const { findStaging, getStagingDiff } = await import("./staging");
+  const session = await findStaging(run.workspacePath, join(config.dataDir, "staging"), run.id, run.pendingPhase);
+  if (!session) return reply.code(409).send({ error: "Staging session missing." });
+  const files = await getStagingDiff(session);
+  return { runId: run.id, phaseIndex: run.pendingPhase, files };
+});
+
 // Yeni proje klasörü oluşturur (workspaceDir altında, isimden türetilmiş benzersiz ad).
-app.post<{ Body: { name?: string } }>("/api/projects/create", async (request, reply) => {
+app.post<{ Body: { name?: string } }>("/api/projects/create", async (request, _reply) => {
   const name = (request.body.name ?? "").trim();
   const base = slug(name) || `proje-${randomUUID().slice(0, 6)}`;
   let dir = join(config.workspaceDir, base);
@@ -1416,10 +1408,44 @@ app.get<{ Params: { runId: string; "*": string } }>("/preview/:runId/*", async (
   return reply.type(mime).send(content);
 });
 
-// Sunucu kapanırken vite dev süreçlerini kapat + bekleyen JSON yazımını diske işle.
-for (const sig of ["SIGINT", "SIGTERM", "exit"] as const) {
-  process.on(sig, () => { previews.stopAll(); store.flush(); });
+// Sunucu kapanırken ajan süreçlerini öldür, vite dev süreçlerini kapat, fastify'i kapat,
+// bekleyen JSON yazımını diske işle. İkinci Ctrl-C zorla çıkar.
+let shuttingDown = false;
+async function gracefulShutdown(signal: string) {
+  if (shuttingDown) {
+    // İkinci sinyal: kullanıcı sıkıldı, bekleyen temizliği atla, hemen çık.
+    console.warn(`[shutdown] second ${signal} received — forcing exit`);
+    process.exit(1);
+  }
+  shuttingDown = true;
+  const startedAt = Date.now();
+  // 5s hard deadline: temizlik takılırsa, yine de çık (ajan süreçleri SIGKILL ile öldürüldü).
+  const forceExit = setTimeout(() => {
+    console.error(`[shutdown] cleanup took >5s — forcing exit`);
+    process.exit(1);
+  }, 5000);
+  forceExit.unref();
+  console.log(`[shutdown] ${signal} received — closing server`);
+  try {
+    const killed = runner.stopAll();
+    if (killed > 0) console.log(`[shutdown] stopped ${killed} active run(s)`);
+  } catch (err) {
+    console.error("[shutdown] runner.stopAll failed:", err);
+  }
+  try { previews.stopAll(); } catch (err) { console.error("[shutdown] previews.stopAll failed:", err); }
+  try { await app.close(); } catch (err) { console.error("[shutdown] app.close failed:", err); }
+  try { store.flush(); } catch (err) { console.error("[shutdown] store.flush failed:", err); }
+  clearTimeout(forceExit);
+  console.log(`[shutdown] done in ${Date.now() - startedAt}ms`);
+  process.exit(0);
 }
+for (const sig of ["SIGINT", "SIGTERM"] as const) {
+  process.on(sig, () => { void gracefulShutdown(sig); });
+}
+// 'exit' senkron — sadece en son çare olarak diske yaz. (async burada ÇALIŞMAZ.)
+process.on("exit", () => {
+  try { previews.stopAll(); store.flush(); } catch { /* yok say */ }
+});
 
 await app.listen({ host: config.host, port: config.port });
 

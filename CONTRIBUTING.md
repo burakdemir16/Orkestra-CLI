@@ -65,6 +65,10 @@ npm test
 - **Tests** — extend coverage for `runner`, `git`, and `github` modules. (see `test-suite` branch WIP)
 - **Per-project repo settings** — remember default branch / private flag per project.
 
+## Shutdown
+
+The server traps SIGINT and SIGTERM and runs `gracefulShutdown` in `apps/server/src/index.ts`: stops every active run (kills child agent processes), closes the Fastify server (releases the port), stops vite dev previews, flushes the store, then exits 0. A 5-second hard deadline force-exits with code 1 if any step hangs; a second Ctrl-C short-circuits the cleanup. Hit Ctrl-C in `npm start` or `pnpm run dev` and the process leaves in well under a second with the port free.
+
 ## Reporting bugs
 
 Open an issue with: what you did, what you expected, what happened, your OS + Node version, and any console/server logs.
