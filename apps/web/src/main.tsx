@@ -4533,6 +4533,9 @@ function ApiProvidersSection({ language }: { language: Language }) {
   useEffect(() => { void load(); }, [load]);
 
   const needsKey = data?.catalog.find((c) => c.id === form.provider)?.needsKey ?? true;
+  // Sağlayıcının API'sinin beklediği TAM model id'si (boşluklu/etiket değil). Yanlış format
+  // "unexpected model name format" hatası verir; bu yüzden örnek gösteriyoruz.
+  const modelExample = ({ gemini: "gemini-2.0-flash", ollama: "llama3.1", openai: "gpt-4o-mini", anthropic: "claude-sonnet-4-5", openrouter: "openai/gpt-4o-mini", groq: "llama-3.3-70b-versatile", mistral: "mistral-large-latest", deepseek: "deepseek-chat" } as Record<string, string>)[form.provider] ?? "model-id";
   const all = [...(data?.configured ?? []), ...(data?.envConfigured ?? [])];
 
   const submit = async () => {
@@ -4585,7 +4588,7 @@ function ApiProvidersSection({ language }: { language: Language }) {
           <select value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value })}>
             {(data?.catalog ?? []).map((c) => <option key={c.id} value={c.id}>{c.id}</option>)}
           </select>
-          <input placeholder={tt.model} value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} />
+          <input placeholder={`${language === "tr" ? "Model (tam id, örn." : "Model (exact id, e.g."} ${modelExample})`} value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} />
           <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
             {["planner", "builder", "reviewer", "fixer", "custom"].map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
@@ -5516,7 +5519,7 @@ function ModelPicker({
           participants.map((p, i) => (
             <span className="partChip on" key={`${p.cli}-${p.model}-${i}`}>
               {plannerLabels[p.cli] ?? sources.find((s) => s.cli === p.cli)?.label ?? plannerLabelOf(plannerLabels, p.cli)}{p.model !== "default" ? ` · ${modelLabelOf(p.cli, p.model)}` : ""}
-              {isApiCli(p.cli) && <span className="apiTag">API</span>}
+              {isApiCli(p.cli) ? <span className="apiTag">API</span> : <span className="cliTag">CLI</span>}
               <button
                 className="partChipRemove"
                 onClick={() => onParticipantsChange?.(participants.filter((_, idx) => idx !== i))}
@@ -5534,7 +5537,7 @@ function ModelPicker({
           <button className="fuseWithBtn" onClick={() => setOpen((o) => !o)}>
             {triggerPrefix && <span className="fuseLabel">{triggerPrefix}</span>}
             <span className="fuseModel">{singleValueLabel}</span>
-            {selected && isApiCli(selected.cli) && <span className="apiTag">API</span>}
+            {selected && (isApiCli(selected.cli) ? <span className="apiTag">API</span> : <span className="cliTag">CLI</span>)}
           </button>
         )}
       </div>
@@ -5559,7 +5562,7 @@ function ModelPicker({
                   <div className="modelPickerGroup">
                     <span className={`agentIcon ${s.cli}`}>{iconForTool(s.cli)}</span>
                     {s.label}
-                    {isApiCli(s.cli) && <span className="apiTag">API</span>}
+                    {isApiCli(s.cli) ? <span className="apiTag">API</span> : <span className="cliTag">CLI</span>}
                   </div>
                   {rows.map((m) => {
                     const sel = isSelected(s.cli, m.id);
@@ -5622,7 +5625,7 @@ function ParticipantPicker({
         {participants.map((p, index) => (
           <span className="partChip on" key={`${p.cli}-${p.model}-${index}`}>
             {plannerLabels[p.cli] ?? sources.find((s) => s.cli === p.cli)?.label ?? plannerLabelOf(plannerLabels, p.cli)}{p.model !== "default" ? ` · ${modelLabel(p.cli, p.model)}` : ""}
-            {(String(p.cli).startsWith("api:") || String(p.cli).startsWith("api-")) && <span className="apiTag">API</span>}
+            {(String(p.cli).startsWith("api:") || String(p.cli).startsWith("api-")) ? <span className="apiTag">API</span> : <span className="cliTag">CLI</span>}
             <button
               className="partChipRemove"
               onClick={() => onChange(participants.filter((_, i) => i !== index))}

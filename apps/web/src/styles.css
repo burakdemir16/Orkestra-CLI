@@ -2510,7 +2510,7 @@ textarea:focus {
 }
 
 /* "API" rozeti: eklenen API sağlayıcıları CLI'lardan ayırır (seçici + chip + tetikleyici) */
-.apiTag {
+.apiTag, .cliTag {
   display: inline-flex;
   align-items: center;
   margin-left: 6px;
@@ -2519,9 +2519,16 @@ textarea:focus {
   font-size: 0.6rem;
   font-weight: 700;
   letter-spacing: 0.04em;
+}
+.apiTag {
   color: #c4b5fd;
   background: rgba(139, 92, 246, 0.18);
   border: 1px solid rgba(139, 92, 246, 0.35);
+}
+.cliTag {
+  color: #7dd3fc;
+  background: rgba(56, 189, 248, 0.14);
+  border: 1px solid rgba(56, 189, 248, 0.3);
 }
 
 .modelPickerGroup .agentIcon {

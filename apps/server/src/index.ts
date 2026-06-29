@@ -280,10 +280,33 @@ app.post<{ Body: { history?: ChatMessage[]; message?: string; planner?: "claude"
   }
 );
 
-app.get("/api/cli-status", async () => ({
-  tools: await getCliStatuses(),
-  checkedAt: new Date().toISOString()
-}));
+// CLI durum/limit sorgusu 3 CLI'ı spawn ettiği için yavaştır (~3-4 sn). Sayfa her
+// yenilendiğinde bunu beklememek için: sonucu cache'le, BAYAT olsa bile anında döndür,
+// arkada tazele (stale-while-revalidate). Login/logout/test bu cache'i bozar.
+type CliStatusPayload = { tools: Awaited<ReturnType<typeof getCliStatuses>>; checkedAt: string };
+let cliStatusCache: CliStatusPayload | null = null;
+let cliStatusAt = 0;
+let cliStatusInflight: Promise<void> | null = null;
+const CLI_STATUS_TTL = 15_000;
+function refreshCliStatus(): Promise<void> {
+  if (cliStatusInflight) return cliStatusInflight;
+  cliStatusInflight = getCliStatuses()
+    .then((tools) => { cliStatusCache = { tools, checkedAt: new Date().toISOString() }; cliStatusAt = Date.now(); })
+    .catch(() => { /* hata: eski cache kalsın */ })
+    .finally(() => { cliStatusInflight = null; });
+  return cliStatusInflight;
+}
+function bustCliStatus() { cliStatusAt = 0; }
+
+app.get("/api/cli-status", async () => {
+  const age = Date.now() - cliStatusAt;
+  if (!cliStatusCache) {
+    await refreshCliStatus(); // soğuk başlangıç: bir kez bekle
+  } else if (age > CLI_STATUS_TTL) {
+    void refreshCliStatus(); // bayat: arkada tazele, şimdilik eskiyi döndür
+  }
+  return cliStatusCache ?? { tools: [], checkedAt: new Date().toISOString() };
+});
 
 // CLI bin dizinlerini PATH'e ekleyen pty env'i (agy/npm sistem PATH'inde olmayabilir).
 function cliPtyEnv(): Record<string, string> {
@@ -380,6 +403,7 @@ function agyLoginCompleted(): boolean {
 app.post<{ Params: { agent: "claude" | "codex" | "antigravity" } }>("/api/cli/:agent/login-window", async (request) => {
   const agent = request.params.agent;
   clearLoginOverride(agent); // önceki "Çıkış" bastırmasını kaldır → giriş algılanabilsin
+  bustCliStatus(); // giriş sonrası durum tazelensin
   const loginCmd = agent === "claude" ? "claude auth login" : agent === "codex" ? "codex login" : "agy login";
   if (process.platform === "win32") {
     const home = process.env.USERPROFILE ?? "";
@@ -430,10 +454,12 @@ app.post("/api/cli/:agent/login-window/close", async () => {
 // ponytail: dead code removed — the agy onboarding flow moved to a different mechanism.
 
 app.post<{ Params: { agent: "claude" | "codex" | "antigravity" } }>("/api/cli/:agent/logout", async (request) => {
+  bustCliStatus();
   return logoutCli(request.params.agent);
 });
 
 app.post<{ Params: { agent: "claude" | "codex" | "antigravity" } }>("/api/cli/:agent/test", async (request) => {
+  bustCliStatus();
   return testCli(request.params.agent);
 });
 
