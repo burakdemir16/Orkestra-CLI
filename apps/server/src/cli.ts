@@ -502,13 +502,23 @@ function userHome(): string {
 }
 
 function agyExecutablePath() {
-  // Linux/macOS: check common install locations (~/.local/bin/agy, homebrew, /usr/local/bin)
+  // Linux/macOS: check common install locations
+  // - macOS: Homebrew on Apple Silicon (/opt/homebrew) and Intel (/usr/local), user bin
+  // - Linux: ~/.local/bin, Linuxbrew, /usr/local/bin
   if (process.platform !== "win32") {
-    for (const candidate of [
-      join(userHome(), ".local", "bin", "agy"),
-      join("/home", "linuxbrew", ".linuxbrew", "bin", "agy"),
-      join("/usr", "local", "bin", "agy"),
-    ]) {
+    const candidates = process.platform === "darwin"
+      ? [
+          join("/opt", "homebrew", "bin", "agy"),
+          join("/usr", "local", "bin", "agy"),
+          join(userHome(), ".local", "bin", "agy"),
+          join(userHome(), "bin", "agy"),
+        ]
+      : [
+          join(userHome(), ".local", "bin", "agy"),
+          join("/home", "linuxbrew", ".linuxbrew", "bin", "agy"),
+          join("/usr", "local", "bin", "agy"),
+        ];
+    for (const candidate of candidates) {
       if (existsSync(candidate)) return candidate;
     }
     return undefined;
