@@ -464,6 +464,13 @@ button {
   place-items: center;
 }
 
+.iconButton.active {
+  background: var(--button-active-bg);
+  color: var(--button-active-text);
+  border-color: transparent;
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.25);
+}
+
 .muted {
   color: #64748b;
 }
