@@ -9,6 +9,7 @@ import {
   Download,
   GitCompare,
   FileText,
+  Check,
   CheckCircle2,
   ChevronRight,
   Target,
@@ -1376,6 +1377,49 @@ function App() {
   useEffect(() => {
     try { localStorage.setItem("orkestra.preWriteApproval", preWriteApproval ? "true" : "false"); } catch { /* yok say */ }
   }, [preWriteApproval]);
+  // Bekleyen fazın diff'i (review mode): aktif run pendingPhase durumuna geçtiğinde doldurulur.
+  const [pendingFiles, setPendingFiles] = useState<DiffFile[]>([]);
+  const [pendingLoading, setPendingLoading] = useState(false);
+  const [decisionBusy, setDecisionBusy] = useState(false);
+  // Aktif run pendingPhase'e düştüğünde diff panelini otomatik aç ve diff'i çek.
+  useEffect(() => {
+    const pending = activeRun?.pendingPhase;
+    if (pending == null) { setPendingFiles([]); return; }
+    let cancelled = false;
+    setPendingLoading(true);
+    api.get<{ files: DiffFile[] }>(`/api/runs/${activeRun!.id}/pending`)
+      .then((res) => { if (!cancelled) setPendingFiles(res.files ?? []); })
+      .catch(() => { if (!cancelled) setPendingFiles([]); })
+      .finally(() => { if (!cancelled) setPendingLoading(false); });
+    setDiffOpen(true);
+    return () => { cancelled = true; };
+  }, [activeRun?.pendingPhase, activeRun?.id]);
+  async function applyPending() {
+    if (!activeRun || decisionBusy) return;
+    setDecisionBusy(true);
+    try {
+      await api.post(`/api/runs/${activeRun.id}/apply`);
+      setPendingFiles([]);
+      await refresh();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDecisionBusy(false);
+    }
+  }
+  async function discardPending() {
+    if (!activeRun || decisionBusy) return;
+    setDecisionBusy(true);
+    try {
+      await api.post(`/api/runs/${activeRun.id}/discard`);
+      setPendingFiles([]);
+      await refresh();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setDecisionBusy(false);
+    }
+  }
   // Sürekli proje: aktif projenin kalıcı workspace yolu (yeni promptlar aynı projede devam eder).
   const [projectWorkspace, setProjectWorkspace] = useState<string | null>(
     () => localStorage.getItem("orkestra.projectWorkspace") || null
@@ -3543,17 +3587,28 @@ function App() {
             {diffOpen ? (
               <DiffPanel
                 language={language}
-                files={diffFiles}
-                loading={diffLoading}
+                files={activeRun?.pendingPhase != null ? pendingFiles : diffFiles}
+                loading={activeRun?.pendingPhase != null ? pendingLoading : diffLoading}
                 width={terminalWidth}
                 onWidthChange={setTerminalWidth}
                 onResizeStart={() => setTerminalResizing(true)}
                 onResizeEnd={() => setTerminalResizing(false)}
-                onRefresh={() => void loadDiff(true)}
+                onRefresh={activeRun?.pendingPhase != null ? () => {
+                  if (!activeRun) return;
+                  setPendingLoading(true);
+                  api.get<{ files: DiffFile[] }>(`/api/runs/${activeRun.id}/pending`)
+                    .then((res) => setPendingFiles(res.files ?? []))
+                    .catch(() => setPendingFiles([]))
+                    .finally(() => setPendingLoading(false));
+                } : () => void loadDiff(true)}
                 onOpenFile={(path) => void openFileInDialog(path)}
-                onGithubPush={activeProjectId ? () => { setGithubPushBusy(true); void pushProjectToGithub(activeProjectId).finally(() => setGithubPushBusy(false)); } : undefined}
+                onGithubPush={activeProjectId && activeRun?.pendingPhase == null ? () => { setGithubPushBusy(true); void pushProjectToGithub(activeProjectId).finally(() => setGithubPushBusy(false)); } : undefined}
                 githubBusy={githubPushBusy}
                 onClose={() => setDiffOpen(false)}
+                reviewMode={activeRun?.pendingPhase != null ? { phaseIndex: activeRun.pendingPhase, totalAdds: 0, totalDels: 0 } : undefined}
+                onApply={activeRun?.pendingPhase != null ? applyPending : undefined}
+                onDiscard={activeRun?.pendingPhase != null ? discardPending : undefined}
+                decisionBusy={decisionBusy}
               />
             ) : (
               <IntegratedTerminal
@@ -7236,7 +7291,11 @@ function DiffPanel({
   onOpenFile,
   onGithubPush,
   githubBusy,
-  onClose
+  onClose,
+  reviewMode,
+  onApply,
+  onDiscard,
+  decisionBusy
 }: {
   language: Language;
   files: DiffFile[];
@@ -7250,6 +7309,10 @@ function DiffPanel({
   onGithubPush?: () => void;
   githubBusy?: boolean;
   onClose: () => void;
+  reviewMode?: { phaseIndex: number; totalAdds: number; totalDels: number };
+  onApply?: () => void;
+  onDiscard?: () => void;
+  decisionBusy?: boolean;
 }) {
   const text = uiText[language];
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -7287,13 +7350,23 @@ function DiffPanel({
       <div className="diffPanelHead">
         <div className="diffPanelTitle">
           <GitCompare size={15} />
-          <span>{text.changes}</span>
+          <span>{reviewMode ? (language === "tr" ? `Faz ${reviewMode.phaseIndex + 1} — inceleme` : `Phase ${reviewMode.phaseIndex + 1} — review`) : text.changes}</span>
           {files.length > 0 && (
             <span className="diffPanelStat"><span className="diffAdd">+{totalAdds}</span> <span className="diffDel">-{totalDels}</span></span>
           )}
         </div>
         <div className="diffPanelActions">
-          {onGithubPush && (
+          {reviewMode && onApply && (
+            <button className="ghostButton diffApplyBtn" onClick={onApply} disabled={decisionBusy} title={language === "tr" ? "Bekleyen değişikliği uygula" : "Apply pending changes"}>
+              {decisionBusy ? <span className="liveSpinner" /> : <Check size={14} />} {language === "tr" ? "Uygula" : "Apply"}
+            </button>
+          )}
+          {reviewMode && onDiscard && (
+            <button className="ghostButton diffDiscardBtn" onClick={onDiscard} disabled={decisionBusy} title={language === "tr" ? "Bekleyen değişikliği at" : "Discard pending changes"}>
+              {decisionBusy ? <span className="liveSpinner" /> : <X size={14} />} {language === "tr" ? "At" : "Discard"}
+            </button>
+          )}
+          {onGithubPush && !reviewMode && (
             <button className="ghostButton diffGithubBtn" onClick={onGithubPush} disabled={githubBusy} title={text.githubPush}>
               {githubBusy ? <span className="liveSpinner" /> : <UploadCloud size={14} />} {text.githubPush}
             </button>
