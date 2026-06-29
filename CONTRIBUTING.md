@@ -59,11 +59,15 @@ npm test
 ## Good first issues / ideas
 
 - **Pre-write diff approval mode** — review and approve changes *before* agents write them (today review is post-write + git rollback).
-- **Cross-platform support** — macOS/Linux folder picker and token storage (currently Windows: native picker + DPAPI). Add keychain/libsecret equivalents.
+- **Cross-platform support** — Linux is now supported (PR #3: zenity/kdialog picker + libsecret token storage). macOS still needs: folder picker via osascript (#5) and Keychain token storage via `security` CLI (#6). Pickup needs a Mac to validate.
 - **More CLI adapters** — pluggable adapters for additional coding CLIs.
 - **More UI languages** beyond EN/TR.
-- **Tests** — extend coverage for `runner`, `git`, and `github` modules.
+- **Tests** — extend coverage for `runner`, `git`, and `github` modules. (see `test-suite` branch WIP)
 - **Per-project repo settings** — remember default branch / private flag per project.
+
+## Shutdown
+
+The server traps SIGINT and SIGTERM and runs `gracefulShutdown` in `apps/server/src/index.ts`: stops every active run (kills child agent processes), closes the Fastify server (releases the port), stops vite dev previews, flushes the store, then exits 0. A 5-second hard deadline force-exits with code 1 if any step hangs; a second Ctrl-C short-circuits the cleanup. Hit Ctrl-C in `npm start` or `pnpm run dev` and the process leaves in well under a second with the port free.
 
 ## Reporting bugs
 
