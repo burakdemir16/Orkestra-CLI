@@ -5,12 +5,16 @@ import { checkHealth, getTarget } from "./serverManager";
  * Slim sidebar launcher. Orkestra's own UI needs desktop width (see
  * studioPanel.ts), so this view just surfaces status + a button that opens
  * the full studio as a wide editor tab, instead of squeezing the app itself
- * into the narrow sidebar.
+ * into the narrow sidebar. Clicking the Activity Bar icon opens the studio
+ * tab immediately — VS Code resolves a webview view once per session the
+ * first time its Activity Bar icon is clicked, so there's no extra click.
  */
 export class OrkestraViewProvider implements vscode.WebviewViewProvider {
   static readonly viewId = "orkestra.panel";
 
   private view: vscode.WebviewView | undefined;
+
+  constructor(private readonly onReveal: () => void) {}
 
   async resolveWebviewView(webviewView: vscode.WebviewView): Promise<void> {
     this.view = webviewView;
@@ -21,6 +25,7 @@ export class OrkestraViewProvider implements vscode.WebviewViewProvider {
       }
     });
     await this.refresh();
+    this.onReveal();
   }
 
   async refresh(): Promise<void> {

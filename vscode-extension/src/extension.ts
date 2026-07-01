@@ -6,7 +6,9 @@ import { StudioPanel } from "./studioPanel";
 export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel("Orkestra");
   const serverManager = new ServerManager(output);
-  const provider = new OrkestraViewProvider();
+  const provider = new OrkestraViewProvider(() => {
+    void vscode.commands.executeCommand("orkestra.openStudio");
+  });
 
   context.subscriptions.push(
     output,
