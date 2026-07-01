@@ -57,8 +57,23 @@
         "command": "orkestra.focusPanel",
         "title": "Orkestra: Focus Agent Studio",
         "category": "Orkestra"
+      },
+      {
+        "command": "orkestra.openStudio",
+        "title": "Orkestra: Open Agent Studio",
+        "category": "Orkestra",
+        "icon": "$(link-external)"
       }
     ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "orkestra.openStudio",
+          "when": "view == orkestra.panel",
+          "group": "navigation"
+        }
+      ]
+    },
     "configuration": {
       "title": "Orkestra",
       "properties": {

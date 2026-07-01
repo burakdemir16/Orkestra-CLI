@@ -1,18 +1,17 @@
 import * as vscode from "vscode";
 import { ServerManager, getTarget } from "./serverManager";
 import { OrkestraViewProvider } from "./orkestraViewProvider";
+import { StudioPanel } from "./studioPanel";
 
 export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel("Orkestra");
   const serverManager = new ServerManager(output);
-  const provider = new OrkestraViewProvider(serverManager, output);
+  const provider = new OrkestraViewProvider();
 
   context.subscriptions.push(
     output,
     serverManager,
-    vscode.window.registerWebviewViewProvider(OrkestraViewProvider.viewId, provider, {
-      webviewOptions: { retainContextWhenHidden: true }
-    }),
+    vscode.window.registerWebviewViewProvider(OrkestraViewProvider.viewId, provider),
 
     vscode.commands.registerCommand("orkestra.startServer", async () => {
       const target = getTarget();
@@ -28,6 +27,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
     vscode.commands.registerCommand("orkestra.stopServer", () => {
       serverManager.stop();
+      void provider.refresh();
     }),
 
     vscode.commands.registerCommand("orkestra.openInBrowser", async () => {
@@ -36,7 +36,12 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
 
     vscode.commands.registerCommand("orkestra.focusPanel", async () => {
-      await provider.reveal();
+      await vscode.commands.executeCommand("orkestra.panel.focus");
+    }),
+
+    vscode.commands.registerCommand("orkestra.openStudio", async () => {
+      await StudioPanel.openOrReveal(serverManager, output);
+      await provider.refresh();
     })
   );
 }
