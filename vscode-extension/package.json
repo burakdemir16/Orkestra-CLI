@@ -1,0 +1,116 @@
+{
+  "name": "orkestra-vscode",
+  "displayName": "Orkestra",
+  "description": "Drive Claude Code, Codex and Antigravity/Gemini CLIs from a local-first Agent Studio panel inside VS Code.",
+  "version": "0.1.0",
+  "publisher": "orkestra",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/burakdemir16/Orkestra-CLI.git",
+    "directory": "vscode-extension"
+  },
+  "engines": {
+    "vscode": "^1.85.0",
+    "node": ">=20"
+  },
+  "categories": ["Other", "Machine Learning"],
+  "keywords": ["ai", "agent", "claude-code", "codex", "gemini", "orchestration"],
+  "main": "./dist/extension.js",
+  "icon": "media/icon.png",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "orkestra",
+          "title": "Orkestra",
+          "icon": "media/activity-bar-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "orkestra": [
+        {
+          "type": "webview",
+          "id": "orkestra.panel",
+          "name": "Agent Studio"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "orkestra.startServer",
+        "title": "Orkestra: Start Server",
+        "category": "Orkestra"
+      },
+      {
+        "command": "orkestra.stopServer",
+        "title": "Orkestra: Stop Server",
+        "category": "Orkestra"
+      },
+      {
+        "command": "orkestra.openInBrowser",
+        "title": "Orkestra: Open in Browser",
+        "category": "Orkestra"
+      },
+      {
+        "command": "orkestra.focusPanel",
+        "title": "Orkestra: Focus Agent Studio",
+        "category": "Orkestra"
+      },
+      {
+        "command": "orkestra.openStudio",
+        "title": "Orkestra: Open Agent Studio",
+        "category": "Orkestra",
+        "icon": "$(link-external)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "orkestra.openStudio",
+          "when": "view == orkestra.panel",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Orkestra",
+      "properties": {
+        "orkestra.host": {
+          "type": "string",
+          "default": "127.0.0.1",
+          "description": "Host the local Orkestra server listens on."
+        },
+        "orkestra.port": {
+          "type": "number",
+          "default": 8787,
+          "description": "Port the local Orkestra server listens on."
+        },
+        "orkestra.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically start the local Orkestra server when the panel is opened, if one isn't already running."
+        },
+        "orkestra.serverPath": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to an Orkestra-CLI checkout (containing bin/orkestra.mjs) to run from source. Leave empty to use the globally installed 'orkestra' CLI."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "package": "npm run typecheck && node esbuild.mjs --production",
+    "vsce:package": "npm run package && vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.7.2"
+  }
+}

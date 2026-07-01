@@ -31,6 +31,8 @@ process.env.ORKESTRA_DATA_DIR ||= join(base, "data");
 process.env.ORKESTRA_WORKSPACE_DIR ||= join(base, "workspaces");
 
 function openBrowser() {
+  // Embedders (e.g. the VS Code extension) already show the UI in their own panel.
+  if (process.env.ORKESTRA_NO_BROWSER === "1") return;
   const cmd =
     process.platform === "win32"
       ? ["cmd", ["/c", "start", "", url]]
